@@ -3,13 +3,6 @@
 
 /* see main.c for definition */
 
-uint8 mask8bit = 0x7f;		// TO be used for masking 8 bit characters (XMODEM related)
-							// If set to 0x7f, RunCPM masks the 8th bit of characters sent
-							// to the console. This is the standard CP/M behavior.
-							// If set to 0xff, RunCPM passes 8 bit characters. This is
-							// required for XMODEM to work.
-							// Use the CONSOLE7 and CONSOLE8 programs to change this on the fly.
-
 uint8 _chready(void)		// Checks if there's a character ready for input
 {
 	return(_kbhit() ? 0xff : 0x00);
@@ -22,7 +15,12 @@ uint8 _getchNB(void)		// Gets a character, non-blocking, no echo
 
 void _putcon(uint8 ch)		// Puts a character
 {
-	_putch(ch & mask8bit);
+	_putch((novaDOSflags & HiOutFlag) ? ch : ch & 0x7F);
+}
+
+void _putcon8(uint8 ch)		// Puts an 8 bit character
+{
+	_putch(ch);
 }
 
 void _puts(const char* str)	// Puts a \0 terminated string

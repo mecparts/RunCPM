@@ -6,8 +6,7 @@
 #include <ctype.h>
 #endif
 
-/* Definitions for enabling PUN: and LST: devices */
-#define USE_PUN	// The pun.txt and lst.txt files will appear on drive A: user 0
+/* Definitions for enabling and LST: device */
 #define USE_LST
 
 /* Definitions for file/console based debugging */
@@ -19,7 +18,7 @@
 //#define iDEBUG		// Instruction debugger (PC only, for development)
 
 /* RunCPM version for the greeting header */
-#define VERSION	"3.9"
+#define VERSION	"3.9a"
 #define VersionBCD 0x39
 
 #define STR_HELPER(x) #x
@@ -27,57 +26,68 @@
 
 /* Definition of which CCP to use (must define only one) */
 //#define CCP_INTERNAL	// If this is defined, an internal CCP will emulated
-#define CCP_DR
+//#define CCP_DR
 //#define CCP_CCPZ
 //#define CCP_ZCPR2
 //#define CCP_ZCPR3
+#define CCP_ZCPR33
 //#define CCP_Z80
 
 /* Definition of the CCP memory information */
 //
 #ifdef CCP_INTERNAL
 #define CCPname		"INTERNAL v1.5"			// Will use the CCP from ccp.h
-#define VersionCCP	0x15              // 0x10 and above reserved for Internal CCP
+#define VersionCCP	0x15							// 0x10 and above reserved for Internal CCP
 #define BatchFCB	(tmpFCB + 36)
 #define CCPaddr		(BDOSjmppage-0x0800)
 #endif
 //
 #ifdef CCP_DR
-#define CCPname		"CCP-DR." STR(TPASIZE) "K"
+#define CCPname		"CCP-DR." STR(CPMSIZE) "K"
 #define VersionCCP	0x00					// Version to be used by INFO.COM
 #define BatchFCB	(CCPaddr + 0x7AC)		// Position of the $$$.SUB fcb on this CCP
 #define CCPaddr		(BDOSjmppage-0x0800)	// CCP memory address
 #endif
 //
 #ifdef CCP_CCPZ
-#define CCPname		"CCP-CCPZ." STR(TPASIZE) "K"
+#define CCPname		"CCP-CCPZ." STR(CPMSIZE) "K"
 #define VersionCCP	0x01
 #define BatchFCB	(CCPaddr + 0x7A)		// Position of the $$$.SUB fcb on this CCP
 #define CCPaddr		(BDOSjmppage-0x0800)
 #endif
 //
 #ifdef CCP_ZCPR2
-#define CCPname		"CCP-ZCP2." STR(TPASIZE) "K"
+#define CCPname		"CCP-ZCP2." STR(CPMSIZE) "K"
+#define Z3REV 20
 #define VersionCCP	0x02
 #define BatchFCB	(CCPaddr + 0x5E)		// Position of the $$$.SUB fcb on this CCP
 #define CCPaddr		(BDOSjmppage-0x0800)
 #endif
 //
 #ifdef CCP_ZCPR3
-#define CCPname		"CCP-ZCP3." STR(TPASIZE) "K"
+#define CCPname		"CCP-ZCP3." STR(CPMSIZE) "K"
+#define Z3REV 30
 #define VersionCCP	0x03
 #define BatchFCB	(CCPaddr + 0x5E)		// Position of the $$$.SUB fcb on this CCP
 #define CCPaddr		(BDOSjmppage-0x1000)
 #endif
 //
+#ifdef CCP_ZCPR33
+#define CCPname		"ZCPR33." STR(CPMSIZE) "K"
+#define Z3REV 33
+#define VersionCCP	0x05
+#define BatchFCB	(CCPaddr + 0x5E)		// Position of the $$$.SUB fcb on this CCP
+#define CCPaddr		(BDOSjmppage-0x0800)
+#endif
+//
 #ifdef CCP_Z80
-#define CCPname		"CCP-Z80." STR(TPASIZE) "K"
+#define CCPname		"CCP-Z80." STR(CPMSIZE) "K"
 #define VersionCCP	0x04
 #define BatchFCB	(CCPaddr + 0x79E)		// Position of the $$$.SUB fcb on this CCP
 #define CCPaddr		(BDOSjmppage-0x0800)
 #endif
 //
-#define CCPHEAD		"\r\nRunCPM Version " VERSION " (CP/M 2.2 " STR(TPASIZE) "K)\r\n"
+#define CCPHEAD		"\r\nRunCPM Version " VERSION " (CP/M 2.2 " STR(CPMSIZE) "K)\r\n"
 
 //#define HASLUA		// Will enable Lua scripting (BDOS call 254)
 						// Should be passed externally per-platform with -DHASLUA
@@ -130,9 +140,10 @@ typedef unsigned int    uint32;
 #define RAM_FAST	// If this is defined, all RAM function calls become direct access (see below)
 					// This saves about 2K on the Arduino code and should bring speed improvements
 
-#define TPASIZE 60	// Can be 60 for CP/M 2.2 compatibility or more, up to 64 for extra memory
-					// Values other than 60 or 64 would require rebuilding the CCP
-					// For TPASIZE<60 CCP ORG = (SIZEK * 1024) - 0x0C00
+#define CPMSIZE 62 // Can be 64 for CP/M 2.2 compatibility or more, up to 66 for extra memory
+					// Values other than 62 or 66 would require rebuilding the CCP
+					// CCP ORG = (CPMSIZE * 1024) - 0x0600 - 0x0E00 - 0x0800
+
 
 #define MEMSIZE 64 * 1024	// RAM(plus ROM) needs to be 64K to avoid compatibility issues
 
@@ -148,17 +159,119 @@ static uint8 RAM[MEMSIZE];
 //// Size of the allocated pages (Minimum size = 1 page = 256 bytes)
 
 // BIOS Pages (always on the top of memory)
-#define BIOSpage	(MEMSIZE - 256)
+#ifdef CCP_ZCPR33
+
+#define EXTSTK_B	48
+#define Z3CL_B		208
+#define Z3TCAP_S	1
+#define Z3TCAP_B	(128 * Z3TCAP_S)
+#define Z3ENV_S	1
+#define Z3ENV_B	(128 * Z3ENV_S)
+#define EXTFCB_B	48
+#define Z3MSG_B	80
+#define SHSTK_N	4
+#define SHSTK_L	32
+#define SHSTK_B	(SHSTK_N * SHSTK_L)
+#define Z3NDIR_S	28
+#define Z3NDIR_B	(18 * Z3NDIR_S + 8)
+#define FCP_S		6
+#define FCP_B		(128 * FCP_S)
+#define RCP_S		8
+#define RCP_B		(128 * RCP_S)
+#define IOP_S		0
+#define IOP_B		(128 * IOP_S)
+
+#if EXTSTK_B
+#define EXTSTK	(MEMSIZE - EXTSTK_B)
+#else
+#define EXTSTK	0
+#endif
+
+#if Z3CL_B
+#define Z3CL	(MEMSIZE - EXTSTK_B - Z3CL_B)
+#else
+#define Z3CL	0
+#endif
+
+#if Z3TCAP_B
+#define Z3TCAP	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B)
+#else
+#define Z3TCAP	0
+#endif
+
+#if Z3ENV_B
+#define Z3ENV	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B)
+#else
+#define Z3ENV	0
+#endif
+
+#if EXTFCB_B
+#define EXTFCB	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B)
+#else
+#define EXTFCB	0
+#endif
+
+#if Z3MSG_B
+#define Z3MSG	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B)
+#else
+#define Z3MSG	0
+#endif
+
+#if SHSTK_B
+#define SHSTK	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B)
+#else
+#define SHSTK	0
+#endif
+
+#if Z3NDIR_B
+#define Z3NDIR	(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B - Z3NDIR_B)
+#else
+#define Z3NDIR	0
+#endif
+
+#if FCP_B
+#define FCP		(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B - Z3NDIR_B - FCP_B)
+#else
+#define FCP		0
+#endif
+
+#if RCP_B
+#define RCP		(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B - Z3NDIR_B - FCP_B - RCP_B)
+#else
+#define RCP		0
+#endif
+
+#if IOP_B
+#define IOP		(MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B - Z3NDIR_B - FCP_B - RCP_B - IOP_B)
+#else
+#define IOP		0
+#endif
+
+#define BIOS_TOP	((MEMSIZE - EXTSTK_B - Z3CL_B - Z3TCAP_B - Z3ENV_B - EXTFCB_B - Z3MSG_B - SHSTK_B - Z3NDIR_B - FCP_B - RCP_B - IOP_B) & 0xFF00)
+#define Z3WHL		0x004B
+#define EXPATH		0x0040
+#define EXPATH_S	5
+
+#define MAXDSK		'F'
+#define MAXUSR		15
+#else
+#define BIOS_TOP	MEMSIZE
+#endif
+
+#define BIOSpage		(BIOS_TOP - 256)
 #define BIOSjmppage	(BIOSpage - 256)
 
-// BDOS Pages (depend on TPASIZE)
-#define BDOSpage (TPASIZE * 1024) - 768
-#define BDOSjmppage	(BDOSpage - 256)
 
-#define DPBaddr (BIOSpage + 64)	// Address of the Disk Parameters Block (Hardcoded in BIOS)
+// BDOS Pages (depend on CPMSIZE)
+#define BDOSsize		0x0E00
+#define BDOSjmppage	(BIOSjmppage - BDOSsize)
+#define BDOSpage		(BDOSjmppage + 256)
 
-#define SCBaddr (BDOSpage + 16)	// Address of the System Control Block
-#define tmpFCB  (BDOSpage + 64)	// Address of the temporary FCB
+#define DPBaddr	(BIOSpage + 64)	// Address of the Disk Parameters Block (Hardcoded in BIOS)
+#define SCBaddr	(BDOSpage + 16)	// Address of the System Control Block
+#define tmpFCB 	(BDOSpage + 64)	// Address of the temporary FCB
+#define fileTS		(BDOSpage + 128)	// address of the timestamp of the last open/found file
+#define millisTS	(fileTS + 10)		// address of last millis() value
 
 /* Definition of global variables */
 static uint8	filename[17];		// Current filename in host filesystem format
@@ -171,6 +284,8 @@ static uint8	cDrive = 0;			// Currently selected drive
 static uint8	userCode = 0;		// Current user code
 static uint16	roVector = 0;
 static uint16	loginVector = 0;
+static uint8	useFileStamp = FALSE;
+static int16	bdosFunc = -1;
 static uint8	allUsers = FALSE;	// true when dr is '?' in BDOS search first
 static uint8	allExtents = FALSE; // true when ex is '?' in BDOS search first
 static uint8	currFindUser = 0;	// user number of current directory in BDOS search first on all user numbers
@@ -182,7 +297,18 @@ static uint16	numAllocBlocks;		// # of allocation blocks on disk
 static uint8	extentsPerDirEntry;	// # of logical (16K) extents in a directory entry
 #define logicalExtentBytes (16*1024UL)
 static uint16	physicalExtentBytes;	// # bytes described by 1 directory entry
-
+static uint16	warmBootTrap = 0;	// warm boot error trap jump address
+static uint8	errorTrapped = FALSE;	// true after warm boot error has been trapped
+enum NovaDOSflags {
+	PublicFlag = 1<<0,
+	CtrlSFlag = 1<<1,
+	HiInFlag = 1<<2,
+	HiOutFlag = 1<<3,
+	PubROFlag = 1<<4,
+	RbldVecFlag = 1<<5
+};
+static uint8	novaDOSflags = PublicFlag | CtrlSFlag | RbldVecFlag;
+	
 #define tohex(x)	((x) < 10 ? (x) + 48 : (x) + 87)
 
 /* Definition of externs to prevent precedence compilation errors */

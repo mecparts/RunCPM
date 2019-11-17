@@ -14,32 +14,55 @@
 /*
 Disk errors
 */
-#define errWRITEPROT 1
-#define errSELECT 2
+#define errREAD		1
+#define errSELECT		2
+#define errRODISK		3
+#define errROFILE		4
+#define errCHGDISK	5
+#define errWPFILE		6
 
 #define RW	(roVector & (1 << F->dr))
 
 // Prints out a BDOS error
 void _error(uint8 error) {
-	_puts("\r\nBdos Error on ");
-	_putcon('A' + cDrive);
-	_puts(" : ");
-	switch (error) {
-	case errWRITEPROT:
-		_puts("R/O");
-		break;
-	case errSELECT:
-		_puts("Select");
-		break;
-	default:
-		_puts("\r\nCP/M ERR");
-		break;
+	if (warmBootTrap) {
+		SET_HIGH_REGISTER(AF, error);
+		SET_LOW_REGISTER(DE, cDrive);
+		PC = warmBootTrap;
+		errorTrapped = true;
+	} else {
+		_puts("\r\nBdos Error on ");
+		_putcon('A' + cDrive);
+		_puts(" : ");
+		switch (error) {
+			case errREAD:
+				_puts("Read error");
+				break;
+			case errSELECT:
+				_puts("Select");
+				break;
+			case errRODISK:
+				_puts("Disk R/O");
+				break;
+			case errROFILE:
+				_puts("File R/O");
+				break;
+			case errCHGDISK:
+				_puts("Disk changed");
+				break;
+			case errWPFILE:
+				_puts("W/P");
+				break;
+			default:
+				_puts("\r\nCP/M ERR");
+				break;
+		}
+		_getch();
+		_puts("\r\n");
+		cDrive = oDrive;
+		_RamWrite(0x0004, (_RamRead(0x0004) & 0xf0) | oDrive);
+		Status = WBOOT;
 	}
-	Status = _getch();
-	_puts("\r\n");
-	cDrive = oDrive;
-	_RamWrite(0x0004, (_RamRead(0x0004) & 0xf0) | oDrive);
-	Status = 2;
 }
 
 // Selects the disk to be used by the next disk function
@@ -79,7 +102,11 @@ uint8 _FCBtoHostname(uint16 fcbaddr, uint8* filename) {
 	}
 	*(filename++) = FOLDERCHAR;
 
-	*(filename++) = toupper(tohex(userCode));
+	if (isxdigit(F->s1)) {
+		*(filename++) = F->s1;
+	} else {
+		*(filename++) = toupper(tohex(userCode));
+	}
 	*(filename++) = FOLDERCHAR;
 
 	if (F->dr != '?') {
@@ -188,6 +215,28 @@ void _HostnameToFCBname(uint8* from, uint8* to) {
 	*to = 0;
 }
 
+// sets the needed file attribute bits from the FAT file system attributes
+void _copyDirAttrsToFCB(CPM_DIRENTRY* DE) {
+	if (fileDirEntry.attributes & DIR_ATT_READ_ONLY) {
+		DE->tp[0] |= 0x80;
+	}
+	if (fileDirEntry.attributes & DIR_ATT_ARCHIVE) {
+		DE->tp[2] |= 0x80;
+	}
+	if (fileDirEntry.attributes & DIR_ATT_SYSTEM) {
+		DE->tp[1] |= 0x80;
+	}
+	if (fileDirEntry.attributes & DIR_ATT_HIDDEN) {
+		DE->fn[1] |= 0x80;
+	}
+	if (fileDirEntry.attributes & (1<<6)) {
+		DE->fn[2] |= 0x80;
+	}
+	if (fileDirEntry.attributes & (1<<7)) {
+		DE->fn[3] |= 0x80;
+	}
+}
+
 // Creates a fake directory entry for the current dmaAddr FCB
 void _mockupDirEntry(void) {
 	CPM_DIRENTRY* DE = (CPM_DIRENTRY*)_RamSysAddr(dmaAddr);
@@ -198,6 +247,8 @@ void _mockupDirEntry(void) {
 	}
 	_HostnameToFCB(dmaAddr, (uint8*)findNextDirName);
 
+	_copyDirAttrsToFCB(DE);
+	
 	if (allUsers) {
 		DE->dr = currFindUser; // set user code for return
 	} else {
@@ -278,18 +329,18 @@ uint8 _OpenFile(uint16 fcbaddr) {
 	int32 i;
 
 	if (!_SelectDisk(F->dr)) {
-		_FCBtoHostname(fcbaddr, &filename[0]);
-		if (_sys_openfile(&filename[0])) {
+		F->s1 = 0x00;
+		_FCBtoHostname(fcbaddr, filename);
+		if (_sys_openfile(filename, F) || _sys_openpublicfile(filename, F)) {
 
 			len = _FileSize(fcbaddr) / BlkSZ;	// Compute the len on the file in blocks
 
-			F->s1 = 0x00;
 			F->s2 = 0x00;
 
 			F->rc = len > MaxRC ? MaxRC : (uint8)len;
 			for (i = 0; i < 16; ++i)	// Clean up AL
 				F->al[i] = 0x00;
-
+			_copyDirAttrsToFCB((CPM_DIRENTRY*)F);
 			result = 0x00;
 		}
 	}
@@ -308,7 +359,7 @@ uint8 _CloseFile(uint16 fcbaddr) {
 				_Truncate((char*)filename, F->rc);	// Truncate $$$.SUB to F->rc CP/M records so SUBMIT.COM can work
 			result = 0x00;
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(result);
@@ -322,6 +373,7 @@ uint8 _MakeFile(uint16 fcbaddr) {
 
 	if (!_SelectDisk(F->dr)) {
 		if (!RW) {
+			F->s1 = 0x00;
 			_FCBtoHostname(fcbaddr, &filename[0]);
 			if (_sys_makefile(&filename[0])) {
 				F->ex = 0x00;	// Makefile also initializes the FCB (file becomes "open")
@@ -334,7 +386,7 @@ uint8 _MakeFile(uint16 fcbaddr) {
 				result = 0x00;
 			}
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(result);
@@ -346,6 +398,7 @@ uint8 _SearchFirst(uint16 fcbaddr, uint8 isdir) {
 	uint8 result = 0xff;
 
 	if (!_SelectDisk(F->dr)) {
+		F->s1 = 0x00;
 		_FCBtoHostname(fcbaddr, &filename[0]);
 		allUsers = F->dr == '?';
 		allExtents = F->ex == '?';
@@ -376,7 +429,7 @@ uint8 _SearchNext(uint16 fcbaddr, uint8 isdir) {
 // Deletes a file
 uint8 _DeleteFile(uint16 fcbaddr) {
 	CPM_FCB* F = (CPM_FCB*)_RamSysAddr(fcbaddr);
-#if defined(USE_PUN) || defined(USE_LST)
+#if defined(USE_LST)
 	CPM_FCB* T = (CPM_FCB*)_RamSysAddr(tmpFCB);
 #endif
 	uint8 result = 0xff;
@@ -386,12 +439,6 @@ uint8 _DeleteFile(uint16 fcbaddr) {
 		if (!RW) {
 			result = _SearchFirst(fcbaddr, FALSE);	// FALSE = Does not create a fake dir entry when finding the file
 			while (result != 0xff) {
-#ifdef USE_PUN
-				if (!strcmp((char*)T->fn, "PUN     TXT") && pun_open) {
-					_sys_fclose(pun_dev);
-					pun_open = FALSE;
-				}
-#endif
 #ifdef USE_LST
 				if (!strcmp((char*)T->fn, "LST     TXT") && lst_open) {
 					_sys_fclose(lst_dev);
@@ -401,10 +448,15 @@ uint8 _DeleteFile(uint16 fcbaddr) {
 				_FCBtoHostname(tmpFCB, &filename[0]);
 				if (_sys_deletefile(&filename[0]))
 					deleted = 0x00;
+				else {
+					deleted = 0xFF;
+					_error(errROFILE);
+					break;
+				}
 				result = _SearchFirst(fcbaddr, FALSE);	// FALSE = Does not create a fake dir entry when finding the file
 			}
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(deleted);
@@ -418,12 +470,14 @@ uint8 _RenameFile(uint16 fcbaddr) {
 	if (!_SelectDisk(F->dr)) {
 		if (!RW) {
 			_RamWrite(fcbaddr + 16, _RamRead(fcbaddr));	// Prevents rename from moving files among folders
+			_RamWrite(fcbaddr + 16 + 13, 0x00);				// make sure S1 starts out as 0
 			_FCBtoHostname(fcbaddr + 16, &newname[0]);
+			_RamWrite(fcbaddr + 13, 0x00);					// make sure S1 starts out as 0
 			_FCBtoHostname(fcbaddr, &filename[0]);
 			if (_sys_renamefile(&filename[0], &newname[0]))
 				result = 0x00;
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(result);
@@ -485,7 +539,7 @@ uint8 _WriteSeq(uint16 fcbaddr) {
 					result = 0xfe;	// (todo) not sure what to do 
 			}
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(result);
@@ -530,7 +584,7 @@ uint8 _WriteRand(uint16 fcbaddr) {
 				F->s2 = (record >> 12) & 0xff;
 			}
 		} else {
-			_error(errWRITEPROT);
+			_error(errRODISK);
 		}
 	}
 	return(result);
@@ -540,7 +594,10 @@ uint8 _WriteRand(uint16 fcbaddr) {
 uint8 _GetFileSize(uint16 fcbaddr) {
 	CPM_FCB* F = (CPM_FCB*)_RamSysAddr(fcbaddr);
 	uint8 result = 0xff;
-	int32 count = _FileSize(DE) >> 7;
+	int32 count ;
+	
+	F->s1 = 0x00;
+	count = _FileSize(DE) >> 7;
 
 	if (count != -1) {
 		F->r0 = count & 0xff;
@@ -581,6 +638,32 @@ uint8 _MakeDisk(uint16 fcbaddr) {
 	return(_sys_makedisk(F->dr));
 }
 
+// set the file attributes in the directory from the FCB
+// NB: not working yet; need to extend SdFat to set file attributes
+uint8 _SetFileAttributes(uint16 fcbaddr) {
+	CPM_FCB* F = (CPM_FCB*)_RamSysAddr(fcbaddr);
+	uint8 result = 0xff;
+
+	if (!_SelectDisk(F->dr)) {
+		if (!RW) {
+			F->s1 = 0x00;
+			_FCBtoHostname(fcbaddr, &filename[0]);
+			result = _sys_setfileattributes(&filename[0],fcbaddr);
+			if (result) {
+				_RamWrite(dmaAddr, userCode);
+				for (uint8 i = 0; i < sizeof(CPM_DIRENTRY); ++i) {
+					_RamWrite(dmaAddr + i, _RamRead(fcbaddr + i));
+				}
+				_RamWrite(dmaAddr, userCode);
+				result = 0;
+			}
+		} else {
+			_error(errRODISK);
+		}
+	}
+	return(result);
+}
+
 // Checks if there's a temp submit file present
 uint8 _CheckSUB(void) {
 	uint8 result;
@@ -603,6 +686,7 @@ uint8 _RunLua(uint16 fcbaddr) {
 	uint8 luascript[17];
 	uint8 result = 0xff;
 
+	_RamWrite(fcbaddr + 13, 0x00);
 	if (_FCBtoHostname(fcbaddr, &luascript[0])) {	// Script name must be unique
 		if (!_SearchFirst(fcbaddr, FALSE)) {			// and must exist
 			result = _RunLuaScript((char*)&luascript[0]);

@@ -9,10 +9,7 @@
 #define INa		0xdb	// Triggers a BIOS call
 #define OUTa	0xd3	// Triggers a BDOS call
 
-/* set up full PUN and LST filenames to be on drive A: user 0 */
-#ifdef USE_PUN
-char pun_file[17] = { 'A',FOLDERCHAR,'0',FOLDERCHAR,'P','U','N','.','T','X','T',0 };
-#endif
+/* set up full LST filename to be on drive A: user 0 */
 #ifdef USE_LST
 char lst_file[17] = { 'A',FOLDERCHAR,'0',FOLDERCHAR,'L','S','T','.','T','X','T',0 };
 #endif
@@ -21,6 +18,8 @@ char lst_file[17] = { 'A',FOLDERCHAR,'0',FOLDERCHAR,'L','S','T','.','T','X','T',
 unsigned long time_start = 0;
 unsigned long time_now = 0;
 #endif
+
+static uint8 firstTime = TRUE;
 
 void _PatchCPM(void) {
 	uint16 i;
@@ -31,7 +30,7 @@ void _PatchCPM(void) {
 	_RamWrite(0x0000, JP);		/* JP BIOS+3 (warm boot) */
 	_RamWrite16(0x0001, BIOSjmppage + 3);
 
-	if (Status != 2) {
+	if (Status != WBOOT) {
 		/* IOBYTE - Points to Console */
 		_RamWrite(0x0003, 0x3D);
 		/* Current drive/user - A:/0 */
@@ -42,28 +41,29 @@ void _PatchCPM(void) {
 	_RamWrite(0x0005, JP);
 	_RamWrite16(0x0006, BDOSjmppage + 0x06);
 
-		//**********  Patch CP/M Version into the memory so the CCP can see it
-		_RamWrite16(BDOSjmppage, 0x1600);
-		_RamWrite16(BDOSjmppage + 2, 0x0000);
-		_RamWrite16(BDOSjmppage + 4, 0x0000);
+	//**********  Patch CP/M Version into the memory so the CCP can see it
+	_RamWrite16(BDOSjmppage, 0x1600);
+	_RamWrite16(BDOSjmppage + 2, 0x0000);
+	_RamWrite16(BDOSjmppage + 4, 0x0000);
 
-		// Patches in the BDOS jump destination
-		_RamWrite(BDOSjmppage + 6, JP);
-		_RamWrite16(BDOSjmppage + 7, BDOSpage);
+	// Patches in the BDOS jump destination
+	_RamWrite(BDOSjmppage + 6, JP);
+	_RamWrite16(BDOSjmppage + 7, BDOSpage);
 
-		// Patches in the BDOS page content
-		_RamWrite(BDOSpage, INa);
-		_RamWrite(BDOSpage + 1, 0x00);
-		_RamWrite(BDOSpage + 2, RET);
+	// Patches in the BDOS page content
+	_RamWrite(BDOSpage, INa);
+	_RamWrite(BDOSpage + 1, 0x00);
+	_RamWrite(BDOSpage + 2, RET);
 
+	if (firstTime) {
 		// Patches in the BIOS jump destinations
-		for (i = 0; i < 0x36; i = i + 3) {
+		for (i = 0; i < 0x3F; i = i + 3) {
 			_RamWrite(BIOSjmppage + i, JP);
 			_RamWrite16(BIOSjmppage + i + 1, BIOSpage + i);
 		}
 
 		// Patches in the BIOS page content
-		for (i = 0; i < 0x36; i = i + 3) {
+		for (i = 0; i < 0x3F; i = i + 3) {
 			_RamWrite(BIOSpage + i, OUTa);
 			_RamWrite(BIOSpage + i + 1, i & 0xff);
 			_RamWrite(BIOSpage + i + 2, RET);
@@ -109,6 +109,242 @@ void _PatchCPM(void) {
 			}
 		}
 		physicalExtentBytes = logicalExtentBytes * (extentMask + 1);
+		
+#ifdef CCP_ZCPR33
+		uint16 c;
+		
+		_RamWrite16(Z3CL,Z3CL+4);  // Point to the 1st char in cmd line buf
+		_RamWrite(Z3CL+2,Z3CL_B);  // Command line buffer size
+		
+		char autocmd[] = "STARTUP ";// 8 bytes max
+		_RamWrite(Z3CL+3,sizeof(autocmd));
+		c = 0;
+		i = Z3CL+4;						// move the automatic command to the
+		while( autocmd[c] ) {		// ZCPR3 command line
+			_RamWrite(i++,autocmd[c]);
+			++c;
+		}
+		_RamWrite(i,0);
+		
+		i = EXPATH;						// Initial path description
+		_RamWrite(i++, '$');			// current drive
+		_RamWrite(i++, '$');			// current user
+		_RamWrite(i++, 1);			// Drive A:, user 15
+		_RamWrite(i++, 15);
+		_RamWrite(i++, 0);			// end of path
+		
+		_RamWrite(Z3WHL, 0xFF);		// turn the wheel byte on
+
+		i = Z3ENV;							// move environment and TCAP
+		_RamWrite(i++, JP);				// 0xFE00 - leading JP
+		_RamWrite16(i, 0); i+=2;
+
+		_RamWrite(i++, 'Z');				// 0xFE03 - environment ID
+		_RamWrite(i++, '3');
+		_RamWrite(i++, 'E');
+		_RamWrite(i++, 'N');
+		_RamWrite(i++, 'V');
+
+		_RamWrite(i++, 1);				// 0xFE08 - class 1 environment (external);
+
+		_RamWrite16(i, EXPATH); i+=2;	// 0xFE09 - external path (PATH)
+		_RamWrite(i++, EXPATH_S);
+
+		_RamWrite16(i, RCP); i+=2;		// 0xFE0C - resident command package (RCP)
+		_RamWrite(i++, RCP_S);
+		
+		_RamWrite16(i, IOP); i+=2;		// 0xFE0F - input/output package (IOP)
+		_RamWrite(i++, IOP_S);
+		
+		_RamWrite16(i, FCP); i+=2;		// 0xFE12 - flow command package (FCP)
+		_RamWrite(i++, FCP_S);
+		
+		_RamWrite16(i, Z3NDIR); i+=2;	// 0xFE15 - named directories (NDR)
+		_RamWrite(i++, Z3NDIR_S);
+
+		_RamWrite16(i, Z3CL); i+=2;	// 0xFE18 - command line (CL)
+		_RamWrite(i++, Z3CL_B);
+
+		_RamWrite16(i, Z3ENV); i+=2;	// 0xFE1B - environment (ENV)
+		_RamWrite(i++, Z3ENV_S);
+
+		_RamWrite16(i, SHSTK); i+=2;	// 0xFE1E - shell stack (SH)
+		_RamWrite(i++, SHSTK_N);
+		_RamWrite(i++, SHSTK_L);
+
+		_RamWrite16(i, Z3MSG); i+=2;	// 0xFE22 - message buffer (MSG)
+		_RamWrite16(i, EXTFCB); i+=2;	// 0xFE24 - external FCB (FCB)		
+		_RamWrite16(i, EXTSTK); i+=2;	// 0xFE26 - external stack (STK)
+		_RamWrite(i++, 0);				// 0xFE28 - Quiet flag (1=quiet, 0=not quiet)
+		_RamWrite16(i, Z3WHL); i+=2;	// 0xFE29 - Wheel byte (WHL)
+		_RamWrite(i++, 143);				// 0xFE2B - Processor speed (Mhz)
+		_RamWrite(i++, MAXDSK-'@');	// 0xFE2C - Max disk letter
+		_RamWrite(i++, MAXUSR);			// 0xFE2D - Max user number
+		_RamWrite(i++, 1);				// 0xFE2E - 1=ok to accept DU:, 0=not ok
+		_RamWrite(i++, 0);				// 0xFE2F - CRT selection
+		_RamWrite(i++, 0);				// 0xFE30 - Printer selection
+		_RamWrite(i++, 80);				// 0xFE31 - CRT 0: Width
+		_RamWrite(i++, 24);				// 0xFE32 - # of lines
+		_RamWrite(i++, 22);				// 0xFE33 - # of text lines
+		_RamWrite(i++, 132);				// 0xFE34 - CRT 1: Width
+		_RamWrite(i++, 24);				//	0xFE35 - # of lines
+		_RamWrite(i++, 22);				//	0xFE36 - # of text lines
+		_RamWrite(i++, 80);				// 0xFE37 - PRT 0: Width
+		_RamWrite(i++, 66);				// 0xFE38 - # of lines
+		_RamWrite(i++, 58);				//	0xFE39 - # of text lines
+		_RamWrite(i++, 1);				//	0xFE3A - FF flag (1=can form feed)
+		_RamWrite(i++, 96);				// 0xFE3B - PRT 1: Width
+		_RamWrite(i++, 66);				//	0xFE3C - # of lines
+		_RamWrite(i++, 58);				//	0xFE3D - # of text lines
+		_RamWrite(i++, 1);				// 0xFE3E - FF flag (1=can form feed)
+		_RamWrite(i++, 132);				// 0xFE3F - PRT 2: Width
+		_RamWrite(i++, 66);				// 0xFE40 - # of lines
+		_RamWrite(i++, 58);				//	0xFE41 - # of text lines
+		_RamWrite(i++, 1);				//	0xFE42 - FF flag (1=can form feed)
+		_RamWrite(i++, 132);				// 0xFE43 - PRT 3: Width
+		_RamWrite(i++, 88);				//	0xFE44 - # of lines
+		_RamWrite(i++, 82);				//	0xFE45 - # of text lines
+		_RamWrite(i++, 1);				//	0xFE46 - FF flag (1=can form feed)
+		//							  12345678123
+		char shellvar[]	 = "SH      VAR";
+		char genericfile[] = "           ";
+		c=0;
+		while( shellvar[c] ) {			// 0xFE47
+			_RamWrite(i++,shellvar[c]);
+			++c;
+		}
+		for( int j=0; j<4; ++j ) {
+			c=0;
+			while( genericfile[c] ) {	// 0xFE52, 0xFE5D, 0xFE68, 0xFE73
+				_RamWrite(i++,genericfile[c]);
+				++c;
+			}
+		}
+		_RamWrite(i++,0);				// 0xFE7E - Public drive area (ZRDOS +)
+		_RamWrite(i++,0);				// 0xFE7F - Public user area (ZRDOS +)
+		//						 123456789012345
+		char terminal[] = "DEC-VT100      ";
+		c = 0;
+		while( terminal[c] ) {
+			_RamWrite(i++,terminal[c]);
+			++c;
+		}
+		_RamWrite(i++, 0);				// capabilities byte
+		_RamWrite(i++, 'E'-'@');		// Cursor UP (Wordstar Defaults)
+		_RamWrite(i++, 'X'-'@');		// Cursor DOWN
+		_RamWrite(i++, 'D'-'@');		// Cursor RIGHT
+		_RamWrite(i++, 'S'-'@');		// Cursor LEFT
+		_RamWrite(i++, 50);				// CL Delay
+		_RamWrite(i++, 5);				// CM Delay
+		_RamWrite(i++, 3);				// CE Delay
+		
+		_RamWrite(i++, 0x1b);			// CL String
+		_RamWrite(i++, '[');
+		_RamWrite(i++, ';');
+		_RamWrite(i++, 'H');
+		_RamWrite(i++, 0x1b);
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '2');
+		_RamWrite(i++, 'J');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0x1b);			// CM string
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '%');
+		_RamWrite(i++, 'i');
+		_RamWrite(i++, '%');
+		_RamWrite(i++, 'd');
+		_RamWrite(i++, ';');
+		_RamWrite(i++, '%');
+		_RamWrite(i++, 'd');
+		_RamWrite(i++, 'H');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0x1b);			// CE string (clear to end of line)
+		_RamWrite(i++, '[');
+		_RamWrite(i++, 'K');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0x1b);			// SO string (standout on)
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '1');
+		_RamWrite(i++, 'm');
+		_RamWrite(i++, 0);
+		
+		_RamWrite(i++, 0x1b);			// SE string (standout off)
+		_RamWrite(i++, '[');
+		_RamWrite(i++, 'm');
+		_RamWrite(i++, 0);
+		
+		_RamWrite(i++, 0);				// TI string (terminal init)
+		
+		_RamWrite(i++, 0);				// TE string; (terminal deinit);
+		
+		_RamWrite(i++, 0x1b);			// DL line delete
+		_RamWrite(i++, '[');
+		_RamWrite(i++, 'M');
+		_RamWrite(i++, 0);
+		
+		_RamWrite(i++, 0x1b);			// IL line insert
+		_RamWrite(i++, '[');
+		_RamWrite(i++, 'L');
+		_RamWrite(i++, 0);
+		
+		_RamWrite(i++, 0x1b);			// CD clear to end of screen
+		_RamWrite(i++, '[');
+		_RamWrite(i++, 'J');
+		_RamWrite(i++, 0);
+		
+		_RamWrite(i++, 0);				// GO graphics on/off delay
+
+		_RamWrite(i++, 0);				// GS graphics on
+
+		_RamWrite(i++, 0);				// GE graphics off
+
+		_RamWrite(i++, 0x1b);			// CDO cursor off
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '2');
+		_RamWrite(i++, '5');
+		_RamWrite(i++, 'l');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0x1b);			// CDE cursor on
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '2');
+		_RamWrite(i++, '5');
+		_RamWrite(i++, 'h');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0);				// GULC upper left corner
+
+		_RamWrite(i++, 0);				// GURC upper right corner
+
+		_RamWrite(i++, 0);				// GLLC lower left corner
+
+		_RamWrite(i++, 0);				// GLrC lower right corner
+
+		_RamWrite(i++, 0);				// GHL horizontal line
+
+		_RamWrite(i++, 0);				// GVL vertical line
+
+		_RamWrite(i++, 0);				// GFB full block
+
+		_RamWrite(i++, 0);				// GHB hashed block
+
+		_RamWrite(i++, 0);				// GUI upper intersection
+
+		_RamWrite(i++, 0);				// GLI lower intersection
+
+		_RamWrite(i++, 0);				// GIS intersection
+
+		_RamWrite(i++, 0);				// GRTI right intersection
+
+		_RamWrite(i++, 0);				// GLTI left intersection
+		
+		_RamWrite(i++, 0);
+#endif
+		firstTime = FALSE;
+	}
 }
 
 #ifdef DEBUGLOG
@@ -279,10 +515,10 @@ void _Bios(void) {
 
 	switch (ch) {
 	case 0x00:
-		Status = 1;			// 0 - BOOT - Ends RunCPM
+		Status = CBOOT;	// 0 - BOOT - Ends RunCPM
 		break;
 	case 0x03:
-		Status = 2;			// 1 - WBOOT - Back to CCP
+		Status = WBOOT;	// 1 - WBOOT - Back to CCP
 		break;
 	case 0x06:				// 2 - CONST - Console status
 		SET_HIGH_REGISTER(AF, _chready());
@@ -300,9 +536,10 @@ void _Bios(void) {
 	case 0x0F:				// 5 - LIST - List output
 		break;
 	case 0x12:				// 6 - PUNCH/AUXOUT - Punch output
+      _putpun(LOW_REGISTER(BC));
 		break;
-	case 0x15:				// 7 - READER - Reader input (0x1a = device not implemented)
-		SET_HIGH_REGISTER(AF, 0x1a);
+	case 0x15:				// 7 - READER - Reader input
+		SET_HIGH_REGISTER(AF, _getrdr());
 		break;
 	case 0x18:				// 8 - HOME - Home disk head
 		break;
@@ -310,14 +547,17 @@ void _Bios(void) {
 		HL = 0x0000;
 		break;
 	case 0x1E:				// 10 - SETTRK - Set track number
+		Serial.print("BIOS - SETTRK - "); Serial.println(LOW_REGISTER(BC));
 		break;
 	case 0x21:				// 11 - SETSEC - Set sector number
+		Serial.print("BIOS - SETSEC - "); Serial.println(LOW_REGISTER(BC));
 		break;
 	case 0x24:				// 12 - SETDMA - Set DMA address
 		HL = BC;
 		dmaAddr = BC;
 		break;
 	case 0x27:				// 13 - READ - Read selected sector
+		Serial.println("BIOS - READ");
 		SET_HIGH_REGISTER(AF, 0x00);
 		break;
 	case 0x2A:				// 14 - WRITE - Write selected sector
@@ -330,8 +570,17 @@ void _Bios(void) {
 		HL = BC;			// HL=BC=No translation (1:1)
 		break;
 	case 0x33:				// 17 - RETTOCCP - This allows programs ending in RET return to internal CCP
-		Status = 3;
+		Status = RETCCP;
 		break;
+   case 0x36:           // 18 - IOINIT - serial port configuration
+   	_ioinit(BC);
+      break;
+   case 0x39:           // 19 - TTYIST - TTY input (RDR:) status
+      HL = _ttyist();
+      break;
+   case 0x3C:
+      HL = _ttyost();   // 20 - TTYOST - TTY output (PUN:) status
+      break;
 	default:
 #ifdef DEBUG	// Show unimplemented BIOS calls only when debugging
 		_puts("\r\nUnimplemented BIOS call.\r\n");
@@ -352,25 +601,27 @@ void _Bios(void) {
 
 void _Bdos(void) {
 	uint16	i;
-	uint8	j, count, chr, c, ch = LOW_REGISTER(BC);
+	uint8	j, count, chr, c;
+	
+	bdosFunc = LOW_REGISTER(BC);
 
 #ifdef DEBUGLOG
 #ifdef LOGONLY
-	if (ch == LOGONLY)
+	if (bdosFunc == LOGONLY)
 #endif
-		_logBdosIn(ch);
+		_logBdosIn(bdosFunc);
 #endif
 
 	HL = 0x0000;	// HL is reset by the BDOS
 	SET_LOW_REGISTER(BC, LOW_REGISTER(DE)); // C ends up equal to E
 
-	switch (ch) {
+	switch (bdosFunc) {
 		/*
 		C = 0 : System reset
 		Doesn't return. Reloads CP/M
 		*/
 	case 0:
-		Status = 2;	// Same as call to "BOOT"
+		Status = WBOOT;	// Same as call to "BOOT"
 		break;
 		/*
 		C = 1 : Console input
@@ -397,20 +648,13 @@ void _Bdos(void) {
 		Returns: A=Char
 		*/
 	case 3:
-		HL = 0x1a;
+		HL = _getrdr();
 		break;
 		/*
 		C = 4 : Auxiliary (Punch) output
 		*/
 	case 4:
-#ifdef USE_PUN
-		if (!pun_open) {
-			pun_dev = _sys_fopen_w((uint8*)pun_file);
-			pun_open = TRUE;
-		}
-		if (pun_dev)
-			_sys_fputc(LOW_REGISTER(DE), pun_dev);
-#endif
+      _putpun(LOW_REGISTER(DE));
 		break;
 		/*
 		C = 5 : Printer output
@@ -421,13 +665,19 @@ void _Bdos(void) {
 			lst_dev = _sys_fopen_w((uint8*)lst_file);
 			lst_open = TRUE;
 		}
-		if (lst_dev)
+		if (lst_dev) {
 			_sys_fputc(LOW_REGISTER(DE), lst_dev);
+			if (++lst_chrCount > 32) {
+				_sys_fflush(lst_dev);
+				lst_chrCount = 0;
+			}
+		}
 #endif
 		break;
 		/*
 		C = 6 : Direct console IO
 		E = 0xFF : Checks for char available and returns it, or 0x00 if none (read)
+		E = 0xFE : Checks for char available and returns 0xFF if available, or 0x00 if none
 		E = char : Outputs char (write)
 		Returns: A=Char or 0x00 (on read)
 		*/
@@ -438,8 +688,10 @@ void _Bdos(void) {
 			if (HL == 4)
 				Debug = 1;
 #endif
+		} else if (LOW_REGISTER(DE) == 0xfe) {
+			HL = _chready();
 		} else {
-			_putcon(LOW_REGISTER(DE));
+			_putcon8(LOW_REGISTER(DE));
 		}
 		break;
 		/*
@@ -464,8 +716,8 @@ void _Bdos(void) {
 		Sends the $ terminated string pointed by (DE) to the screen
 		*/
 	case 9:
-		while ((ch = _RamRead(DE++)) != '$')
-			_putcon(ch);
+		while ((chr = _RamRead(DE++)) != '$')
+			_putcon(chr);
 		break;
 		/*
 		C = 10 (0Ah) : Buffered input
@@ -491,7 +743,7 @@ void _Bdos(void) {
 			chr = _getch();
 			if (chr == 3 && count == 0) {						// ^C
 				_puts("^C");
-				Status = 2;
+				Status = WBOOT;
 				break;
 			}
 #ifdef DEBUG
@@ -667,7 +919,12 @@ void _Bdos(void) {
 	case 29:
 		HL = roVector;
 		break;
-		/********** (todo) Function 30: Set file attributes **********/
+		/*
+		C = 30 (1Eh) : Set file attributes
+		*/
+	case 30:
+		HL = _SetFileAttributes(DE);
+		break;
 		/*
 		C = 31 (1Fh) : Get ADDR(Disk Parms)
 		*/
@@ -714,7 +971,13 @@ void _Bdos(void) {
 	case 37:
 		break;
 		/********** Function 38: Not supported by CP/M 2.2 **********/
-		/********** Function 39: Not supported by CP/M 2.2 **********/
+		/*
+		C = 39 (27h) : Return fixed media vector
+		*/
+	case 39:
+		HL = (1<<(MAXDSK-'@'))-1;
+		break;
+		
 		/********** (todo) Function 40: Write random with zero fill **********/
 		/*
 		C = 40 (28h) : Write random with zero fill (we have no disk blocks, so just write random)
@@ -722,6 +985,98 @@ void _Bdos(void) {
 	case 40:
 		HL = _WriteRand(DE);
 		break;
+		/*
+		C = 41 (29h) : Get/Set/Reset NovaDOS _
+		*/
+	case 41:		// NovaDOS
+		if (!LOW_REGISTER(DE)) {					// E=0 means return flags
+			HL = novaDOSflags;
+		} else if (LOW_REGISTER(DE) & 0x80) {	// set indicated flags
+			novaDOSflags |= (LOW_REGISTER(DE) & 0x7F);
+		} else {											// reset indicated flags
+			novaDOSflags &= ~LOW_REGISTER(DE);
+		}
+		break;
+		/*
+		C = 47 (2Fh):  Return Current DMA Address
+		*/
+	case 47:		// NovaDOS, ZRDOS
+		HL = dmaAddr;
+		break;
+		/*
+		C = 48 (30h) : return 0x0019 to identiry BDOS as ZRDOS 1.9
+							(which is what NovaDOS H did)
+		*/
+	case 48:		// NovaDOS, ZRDOS
+		HL = 0x0019;
+		break;
+		/*
+		C = 50 (32h) :Set Warm Boot Trap
+		*/
+	case 50:		// NovaDOS, ZRDOS
+		warmBootTrap = DE;
+		break;
+		/*
+		C = 52 (33h) :Reset Warm Boot Trap
+		*/
+	case 52:		// NovaDOS, ZRDOS
+		warmBootTrap = 0;
+		break;
+		/*
+		C = 54 : Get file timestamps
+		OUT: HL = address of timestamp from the last file used by 
+		functions 15 (open file), 17 (find first) or 18 (find next).
+
+		The format of a NovaDOS timestamp is:
+
+		DW  creation date
+		DB  creation time, hours,	BCD
+		DB  creation time, minutes, BCD
+		DW  modification date
+		DB  modification time, hours,	BCD
+		DB  modification time, minutes, BCD
+		*/
+	case 54:		// NovaDOS, Z80DOS
+		HL = _getFileTimeStamp();
+		break;
+		/*
+		C = 55 : Use creation date and last modified date and time stored
+               by Get Stamp instead of real time for the next Write,
+               Make File or Close File call.
+		*/
+	case 55:		// NovaDOS, Z80DOS
+		useFileStamp = true;
+		break;
+		/*
+		C = 105, 200 (69h, C8h) : GetTime
+		IN: DE = address to receive time block (5 bytes)
+		*/
+	case 105:	// Z80DOS
+	case 200:	// NovaDOS
+		_getTime(DE);
+		HL = 0;
+		break;		
+		/*
+		C = 104, 201 (68h, C9h) : SetTime
+		IN: DE = address to time block to set time to (5 bytes)
+		*/
+	case 104:	// Z80DOS
+	case 201:	// NovaDOS
+		_setTime(DE);
+		HL = 0;
+		break;
+
+	case 141:	// MP/M, Concurrent CP/M, CP/M-86 v4
+		/*
+		C = 141 : Delay
+		IN: DE = # of milliseconds to pause. Originally was # of
+               system clock ticks but ms are of more use to me.
+		*/
+		_delay(DE);
+		break;
+   case 165:
+      HL = _millis();
+      break;
 #if defined ARDUINO || defined CORE_TEENSY || defined ESP32
 		/*
 		C = 220 (DCh) : PinMode
@@ -761,7 +1116,11 @@ void _Bdos(void) {
 		C = 230 (E6h) : Set 8 bit masking
 		*/
 	case 230:
-		mask8bit = LOW_REGISTER(DE);
+		if (LOW_REGISTER(DE) == 0xFF) {
+			novaDOSflags |= HiOutFlag;		// allow 8 bit output
+		} else {
+			novaDOSflags &= ~HiOutFlag;	// allow 7 b
+		}
 		break;
 		/*
 		C = 231 (E7h) : Host specific BDOS call
@@ -805,7 +1164,7 @@ void _Bdos(void) {
 		break;
 		/*
 		C = 252 (FCh) : CCP version
-		Returns: A = 0x00-0x04 = DRI|CCPZ|ZCPR2|ZCPR3|Z80CCP / 0xVv = Internal version in BCD: V.v
+		Returns: A = 0x00-0x05 = DRI|CCPZ|ZCPR2|ZCPR3|Z80CCP|ZCPR33 / 0xVv = Internal version in BCD: V.v
 		*/
 	case 252:
 		HL = VersionCCP;
@@ -831,15 +1190,20 @@ void _Bdos(void) {
 #ifdef DEBUG	// Show unimplemented BDOS calls only when debugging
 		_puts("\r\nUnimplemented BDOS call.\r\n");
 		_puts("C = 0x");
-		_puthex8(ch);
+		_puthex8(bdosFunc);
 		_puts("\r\n");
 #endif
 		break;
 	}
-
-	// CP/M BDOS does this before returning
-	SET_HIGH_REGISTER(BC, HIGH_REGISTER(HL));
-	SET_HIGH_REGISTER(AF, LOW_REGISTER(HL));
+	bdosFunc = 0;
+	
+	if (!errorTrapped) {
+		// CP/M BDOS does this before returning
+		SET_HIGH_REGISTER(BC, HIGH_REGISTER(HL));
+		SET_HIGH_REGISTER(AF, LOW_REGISTER(HL));
+	} else {
+		errorTrapped = FALSE;
+	}
 
 #ifdef DEBUGLOG
 #ifdef LOGONLY

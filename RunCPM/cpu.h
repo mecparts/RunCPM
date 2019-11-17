@@ -18,7 +18,12 @@ int32 DE1; /* alternate DE register                        */
 int32 HL1; /* alternate HL register                        */
 int32 IFF; /* Interrupt Flip Flop                          */
 int32 IR;  /* Interrupt (upper) / Refresh (lower) register */
-int32 Status = 0; /* Status of the CPU 0=running 1=end request 2=back to CCP */
+enum StatusType { 
+	RUNNING,
+	CBOOT,
+	WBOOT,
+	RETCCP 
+} Status = RUNNING; /* Status of the CPU 0=running 1=end request 2=back to CCP */
 int32 Debug = 0;
 int32 Break = -1;
 int32 Step = -1;
@@ -1167,7 +1172,7 @@ static inline void Z80reset(void) {
 	PC = 0;
 	IFF = 0;
 	IR = 0;
-	Status = 0;
+	Status = RUNNING;
 	Debug = 0;
 	Break = -1;
 	Step = -1;
@@ -1221,7 +1226,7 @@ uint8 Disasm(uint16 pos) {
 	char jr;
 	uint8 ch = _RamRead(pos);
 	uint8 count = 1;
-	uint8 C;
+	uint8 C = '?';
 
 	switch (ch) {
 	case 0xCB: ++pos; txt = MnemonicsCB[_RamRead(pos++)]; count++; break;
@@ -1443,7 +1448,7 @@ static inline void Z80run(void) {
 	register uint32 adr;
 
 	/* main instruction fetch/decode loop */
-	while (!Status) {	/* loop until Status != 0 */
+	while (Status == RUNNING) {	/* loop until Status != 0 */
 
 #ifdef DEBUG
 		if (PC == Break) {
@@ -2340,7 +2345,7 @@ static inline void Z80run(void) {
 			break;
 
 		case 0xa1:      /* AND C */
-			AF = andTable[((AF >> 8)& BC) & 0xff];
+			AF = andTable[((AF >> 8) & BC) & 0xff];
 			break;
 
 		case 0xa2:      /* AND D */
@@ -2348,7 +2353,7 @@ static inline void Z80run(void) {
 			break;
 
 		case 0xa3:      /* AND E */
-			AF = andTable[((AF >> 8)& DE) & 0xff];
+			AF = andTable[((AF >> 8) & DE) & 0xff];
 			break;
 
 		case 0xa4:      /* AND H */
@@ -2356,11 +2361,11 @@ static inline void Z80run(void) {
 			break;
 
 		case 0xa5:      /* AND L */
-			AF = andTable[((AF >> 8)& HL) & 0xff];
+			AF = andTable[((AF >> 8) & HL) & 0xff];
 			break;
 
 		case 0xa6:      /* AND (HL) */
-			AF = andTable[((AF >> 8)& GET_BYTE(HL)) & 0xff];
+			AF = andTable[((AF >> 8) & GET_BYTE(HL)) & 0xff];
 			break;
 
 		case 0xa7:      /* AND A */
@@ -2558,6 +2563,7 @@ static inline void Z80run(void) {
 
 		case 0xcb:      /* CB prefix */
 			adr = HL;
+			acu = 0;
 			switch ((op = GET_BYTE(PC)) & 7) {
 
 			case 0:
@@ -3147,12 +3153,12 @@ static inline void Z80run(void) {
 				break;
 
 			case 0xa5:      /* AND IXL */
-				AF = andTable[((AF >> 8)& IX) & 0xff];
+				AF = andTable[((AF >> 8) & IX) & 0xff];
 				break;
 
 			case 0xa6:      /* AND (IX+dd) */
 				adr = IX + (int8)RAM_PP(PC);
-				AF = andTable[((AF >> 8)& GET_BYTE(adr)) & 0xff];
+				AF = andTable[((AF >> 8) & GET_BYTE(adr)) & 0xff];
 				break;
 
 			case 0xac:      /* XOR IXH */
@@ -3211,6 +3217,7 @@ static inline void Z80run(void) {
 
 			case 0xcb:      /* CB prefix */
 				adr = IX + (int8)RAM_PP(PC);
+				acu = 0;
 				switch ((op = GET_BYTE(PC)) & 7) {
 
 				case 0:
@@ -3423,7 +3430,7 @@ static inline void Z80run(void) {
 			break;
 
 		case 0xe6:      /* AND nn */
-			AF = andTable[((AF >> 8)& RAM_PP(PC)) & 0xff];
+			AF = andTable[((AF >> 8) & RAM_PP(PC)) & 0xff];
 			break;
 
 		case 0xe7:      /* RST 20H */
@@ -4384,12 +4391,12 @@ static inline void Z80run(void) {
 				break;
 
 			case 0xa5:      /* AND IYL */
-				AF = andTable[((AF >> 8)& IY) & 0xff];
+				AF = andTable[((AF >> 8) & IY) & 0xff];
 				break;
 
 			case 0xa6:      /* AND (IY+dd) */
 				adr = IY + (int8)RAM_PP(PC);
-				AF = andTable[((AF >> 8)& GET_BYTE(adr)) & 0xff];
+				AF = andTable[((AF >> 8) & GET_BYTE(adr)) & 0xff];
 				break;
 
 			case 0xac:      /* XOR IYH */
@@ -4448,6 +4455,7 @@ static inline void Z80run(void) {
 
 			case 0xcb:      /* CB prefix */
 				adr = IY + (int8)RAM_PP(PC);
+				acu = 0;
 				switch ((op = GET_BYTE(PC)) & 7) {
 
 				case 0:
