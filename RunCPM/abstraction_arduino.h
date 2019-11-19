@@ -166,8 +166,8 @@ int _sys_openpublicfile(uint8* filename, CPM_FCB* F) {
 		f = SD.open((char*)filename, O_READ);
 		if (f) {
 			f.dirEntry(&fileDirEntry);
+			f.close();
 			if (fileDirEntry.attributes & DIR_ATT_HIDDEN) {
-				f.close();
 				F->s1 = filename[2];
 				result = 1;
 				break;
@@ -410,6 +410,7 @@ uint8 _findnext(uint8 isdir) {
 					}
 					fileRecords = bytes / BlkSZ;
 					fileExtents = fileRecords / BlkEX + ((fileRecords & (BlkEX - 1)) ? 1 : 0);
+					fileExtentsUsed = 0;
 					firstFreeAllocBlock = firstBlockAfterDir;
 					_mockupDirEntry();
 				} else {
