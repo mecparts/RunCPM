@@ -109,12 +109,12 @@
 #define TRUE 1
 #endif
 
-typedef signed char     int8;
-typedef signed short    int16;
-typedef signed int      int32;
-typedef unsigned char   uint8;
-typedef unsigned short  uint16;
-typedef unsigned int    uint32;
+typedef signed char		int8;
+typedef signed short		int16;
+typedef signed int		int32;
+typedef unsigned char	uint8;
+typedef unsigned short	uint16;
+typedef unsigned int		uint32;
 
 #define LOW_DIGIT(x)            ((x) & 0xf)
 #define HIGH_DIGIT(x)           (((x) >> 4) & 0xf)

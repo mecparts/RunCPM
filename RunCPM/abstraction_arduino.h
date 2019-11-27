@@ -548,7 +548,10 @@ uint8 _sys_makedisk(uint8 drive) {
 static uint8 charCount = 0;
 
 void _putch(uint8 ch) {
-	if (ch != '\a') {
+#if defined BEEPER
+	if (ch != '\a')
+	{
+#endif
 		TERMINALPORT.write(ch);
 		// Periodically flush the USB serial output. This seems to get rid
 		// of the problem where not all text would be displayed before
@@ -559,9 +562,11 @@ void _putch(uint8 ch) {
 			TERMINALPORT.flush();
 			charCount = 0;
 		}
+#if defined BEEPER
 	} else {
 		tone(BEEPER, 800, 200);
 	}
+#endif
 }
 
 #define KEY_TIMEOUT 5
@@ -569,7 +574,7 @@ void _putch(uint8 ch) {
 static uint8 keyFifo[FIFO_LNG];
 static uint8 escNumber;
 static int fifoCount = 0,fifoHead = 0, fifoTail = 0;
-enum EscStateType { NOT_IN_SEQ, SAW_ESC, SAW_BRACE, SAW_O, SAW_NUMBER, SAW_SEMICOLON, SAW_5 } escState = NOT_IN_SEQ;
+enum EscStateType { NOT_IN_SEQ, SAW_ESC, SAW_BRACE, SAW_O, SAW_NUMBER, SAW_8_OR_9, SAW_SEMICOLON, SAW_5 } escState = NOT_IN_SEQ;
 
 // Implement a Finite State Machine to translate VT100/ANSI cursor
 // key sequences to WordStar equivalents. This has the major advantage
@@ -724,6 +729,9 @@ int _kbhit(void) {
 									break;
 							}
 							escState = NOT_IN_SEQ;
+						} else if ((c == '8' || c == '9') && escNumber == '1') {
+							escNumber = c;
+							escState = SAW_8_OR_9;
 						} else if (c == ';' && escNumber == '1') {
 							escState = SAW_SEMICOLON;
 						} else {
@@ -736,6 +744,23 @@ int _kbhit(void) {
 						} else {
 							escState = NOT_IN_SEQ;
 						}
+						break;
+					case SAW_8_OR_9:
+						if (c == '~') {
+							fifoCount -= 5;
+							fifoTail = (fifoTail - 5 + FIFO_LNG) % FIFO_LNG;
+							keyFifo[fifoTail] = 'K' - '@';
+							fifoTail = (fifoTail + 1) % FIFO_LNG;
+							++fifoCount;
+							if (escNumber == '8') {
+								keyFifo[fifoTail] = 'B';	// <F7> - block begin
+							} else {
+								keyFifo[fifoTail] = 'K';	// <F8> - block end
+							}
+							fifoTail = (fifoTail + 1) % FIFO_LNG;
+							++fifoCount;
+						}
+						escState = NOT_IN_SEQ;
 						break;
 					case SAW_5:
 						if (c == 'C' || c == 'D') {	// <esc> [ 1 ; 5 C or D
@@ -768,18 +793,12 @@ uint8 _getch(void) {
 	uint8 c;
 
 	while (!_kbhit()) {
-		;
+		yield();
 	}
 	c = keyFifo[fifoHead];
 	fifoHead = (fifoHead + 1) % FIFO_LNG;
 	--fifoCount;
-	return c;
-#if 0
-	while (!_kbhit()) {
-		yield();
-	}
-	return(TERMINALPORT.read() & ((novaDOSflags & HiInFlag) ? 0xFF : 0x7F));
-#endif
+	return(c & ((novaDOSflags & HiInFlag) ? 0xFF : 0x7F));
 }
 
 // wait for an echo a keypress
@@ -794,7 +813,7 @@ void _clrscr(void) {
 }
 
 // modem support
-
+#if defined MODEMPORT
 // return 1 if a character is ready from the modem input, 0 otherwise
 uint8 _ttyist() {
 	return (uint8)(MODEMPORT.available() ? 1 : 0);
@@ -937,6 +956,30 @@ void _ioinit(uint16 iotab) {
 		}
 	}
 }
+#else
+// return 1 if a character is ready from the modem input, 0 otherwise
+uint8 _ttyist() {
+	return 0;				// no char available
+}
+
+// wait for and return a character from the modem
+uint8 _getrdr() {
+	return (uint8)0x1A;	// EOF
+}
+
+// return 1 if a character can be sent to the modem output, 0 otherwise
+uint8 _ttyost() {
+	return (uint8)1;		// go ahead and send (will be discarded)
+}
+
+// send a character to the modem (discard)
+void _putpun(uint8 c) {
+}
+
+// Set up the modem serial port for a new baud rate and possibly data format.
+void _ioinit(uint16 iotab) {
+}
+#endif
 
 // delay # of ms
 void _delay(uint16 ms) {

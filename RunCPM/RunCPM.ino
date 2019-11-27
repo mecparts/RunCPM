@@ -1,13 +1,13 @@
 #include "globals.h"
 
 #include <SPI.h>
-#include <SdFat.h>  // One SD library to rule them all - Greinman SdFat from Library Manager
+#include <My_SdFat.h>  // One SD library to rule them all - Greinman SdFat from Library Manager
 
 // SDCard/LED related definitions
 //
-//   SdFatSoftSpiEX and SdFatEX require changes to the following lines on SdFatConfig.h:
-//     #define ENABLE_EXTENDED_TRANSFER_CLASS (from 0 to 1 - around line 71)
-//     #define ENABLE_SOFTWARE_SPI_CLASS (from 0 to 1 - around line 87)
+//	SdFatSoftSpiEX and SdFatEX require changes to the following lines on SdFatConfig.h:
+//		#define ENABLE_EXTENDED_TRANSFER_CLASS (from 0 to 1 - around line 71)
+//		#define ENABLE_SOFTWARE_SPI_CLASS (from 0 to 1 - around line 87)
 //
 #if defined _STM32_DEF_ // STM32 boards
 	SdFatSoftSpiEX<PC8, PD2, PC12> SD; // MISO, MOSI, SCK
@@ -24,16 +24,21 @@
 #elif defined __IMXRT1062__ // Teensy 4.0
 	SdFat SD;
 	#define SDINIT 10
-	#define LED 2
+	#define LED 3
 	#define LEDinv 0
 	#define BOARD "Teensy 4.0"
+
 	#define MODEMPORT Serial3
 	#define MODEMSPD 38400
 	#define MODEMRTS 18
 	#define MODEMCTS 19
 	#define MODEMDATABITS 8
 	#define MODEMSTOPBITS 1
+
 	#define BEEPER 20
+
+	#define GSX
+
 #elif defined CORE_TEENSY // Teensy 3.5 and 3.6
 	SdFatSdio SD;
 	#define SDINIT
@@ -66,10 +71,10 @@
 
 #include "abstraction_arduino.h"
 
-#ifdef ESP32        // ESP32 specific CP/M BDOS call routines
+#ifdef ESP32			// ESP32 specific CP/M BDOS call routines
 	#include "esp32.h"
 #endif
-#ifdef _STM32_DEF_  // STM32 specific CP/M BDOS call routines
+#ifdef _STM32_DEF_	// STM32 specific CP/M BDOS call routines
 	#include "stm32.h"
 #endif
 
@@ -85,6 +90,9 @@
 #include "cpu.h"
 #include "disk.h"
 #include "host.h"
+#ifdef GSX
+#include "gsx.h"
+#endif
 #include "cpm.h"
 #ifdef CCP_INTERNAL
 #include "ccp.h"
@@ -93,6 +101,7 @@
 void setup(void) {
 	pinMode(LED, OUTPUT);
 	digitalWrite(LED, LOW);
+
 	TERMINALPORT.begin(SERIALSPD);
 	while (!TERMINALPORT) {	// Wait until serial is connected
 		digitalWrite(LED, HIGH^LEDinv);
@@ -100,7 +109,7 @@ void setup(void) {
 		digitalWrite(LED, LOW^LEDinv);
 		delay(sDELAY);
 	}
-#if defined __IMXRT1062__ 
+#if defined MODEMPORT
 	MODEMPORT.begin(MODEMSPD);
 	if (!MODEMPORT.attachRts(MODEMRTS)) {
 		TERMINALPORT.println("Could not attach RTS.");
@@ -112,6 +121,10 @@ void setup(void) {
 	}
 #endif
 		
+#if defined GSX
+	_gsx_init();
+#endif
+
 #ifdef DEBUGLOG
 	_sys_deletefile((uint8 *)LogName);
 #endif
@@ -147,8 +160,6 @@ void setup(void) {
 			_puts("\nFile System initialization failed.\n");
 			return;
 		}
-#elif defined __IMXRT1062__ 
-if (SD.begin(SDINIT, SD_SCK_MHZ(25))) {
 #else
 	if (SD.begin(SDINIT)) {
 #endif

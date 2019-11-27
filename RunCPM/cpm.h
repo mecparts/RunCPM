@@ -1065,6 +1065,22 @@ void _Bdos(void) {
 		_setTime(DE);
 		HL = 0;
 		break;
+		
+#ifdef GSX
+		/*
+		C = 115 (73h) : GSX
+		IN: DE = parameter block address
+		
+		DEFW	CONTRL	;Address of control array
+		DEFW	INTIN		;Address of integer input array
+		DEFW	PTSIN		;Address of pixel input array
+		DEFW	INTOUT	;Address of integer output array
+		DEFW	PTSOUT	;Address of pixel output array
+		*/
+	case 115:	// GSX
+		HL = _gdos(DE);
+		break;
+#endif
 
 	case 141:	// MP/M, Concurrent CP/M, CP/M-86 v4
 		/*
