@@ -161,6 +161,9 @@ static uint8 RAM[MEMSIZE];
 // BIOS Pages (always on the top of memory)
 #ifdef CCP_ZCPR33
 
+#define TERM_COLS	80
+#define TERM_ROWS	29
+
 #define EXTSTK_B	48
 #define Z3CL_B		208
 #define Z3TCAP_S	1

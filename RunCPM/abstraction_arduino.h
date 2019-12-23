@@ -545,23 +545,11 @@ uint8 _sys_makedisk(uint8 drive) {
 
 /* Console abstraction functions */
 /*===============================================================================*/
-static uint8 charCount = 0;
-
 void _putch(uint8 ch) {
 #if defined BEEPER
-	if (ch != '\a')
-	{
+	if (ch != '\a') {
 #endif
 		TERMINALPORT.write(ch);
-		// Periodically flush the USB serial output. This seems to get rid
-		// of the problem where not all text would be displayed before
-		// waiting for character into (most noticable with [ More ] prompts
-		// at the end of a page. Fingers crossed that it might also get
-		// rid of the "previousl displayed text popping up again" problem.
-		if (++charCount > 32) {
-			TERMINALPORT.flush();
-			charCount = 0;
-		}
 #if defined BEEPER
 	} else {
 		tone(BEEPER, 800, 200);
@@ -662,6 +650,7 @@ int _kbhit(void) {
 							case '1':		// HOME key
 							case '2':		// INSERT key
 							case '3':		// DELETE key
+							case '4':		// END key
 							case '5':		// PAGE UP key
 							case '6':		// PAGE DOWN key
 								escNumber = c;
@@ -710,6 +699,16 @@ int _kbhit(void) {
 									fifoCount -= 4;
 									fifoTail = (fifoTail - 4 + FIFO_LNG) % FIFO_LNG;
 									keyFifo[fifoTail] = 'G' - '@';	// del char under cursor
+									fifoTail = (fifoTail + 1) % FIFO_LNG;
+									++fifoCount;
+									break;
+								case '4':	// END key
+									fifoCount -= 4;
+									fifoTail = (fifoTail - 4 + FIFO_LNG) % FIFO_LNG;
+									keyFifo[fifoTail] = 'Q' - '@';
+									fifoTail = (fifoTail + 1) % FIFO_LNG;
+									++fifoCount;
+									keyFifo[fifoTail] = 'D';	// ^QD end of line
 									fifoTail = (fifoTail + 1) % FIFO_LNG;
 									++fifoCount;
 									break;
@@ -763,10 +762,16 @@ int _kbhit(void) {
 						escState = NOT_IN_SEQ;
 						break;
 					case SAW_5:
-						if (c == 'C' || c == 'D') {	// <esc> [ 1 ; 5 C or D
+						if (c >= 'A' && c <= 'D') {	// <esc> [ 1 ; 5 A, B, C or D
 							fifoCount -= 6;
 							fifoTail = (fifoTail - 6 + FIFO_LNG) % FIFO_LNG;
 							switch (c) {
+								case 'A':	// <ctrl>up arrow - scroll up
+									keyFifo[fifoTail] = 'W' - '@';
+									break;
+								case 'B':	// <ctrl>down arrow - scroll down
+									keyFifo[fifoTail] = 'Z' - '@';
+									break;
 								case 'C':	// <ctrl>right arrow - word right
 									keyFifo[fifoTail] = 'F' - '@';
 									break;
@@ -1064,14 +1069,14 @@ uint16 _getFileTimeStamp() {
 	te.Minute = FAT_MINUTE(fileDirEntry.creationTime);
 	te.Second = 0;
 	tt = makeTime(te);
-	
+
 	uint16 days = tt / SECS_PER_DAY - DAYS_OFFSET_CPM_TO_UNIX;
 	_RamWrite16(fileTS+0, days);
 	uint8 i;
-	i = hour(tt);
-	_RamWrite(fileTS+2, bin2bcd(i));
-	i = minute(tt);
-	_RamWrite(fileTS+3, bin2bcd(i));
+	i = bin2bcd(hour(tt));
+	_RamWrite(fileTS+2, i);
+	i = bin2bcd(minute(tt));
+	_RamWrite(fileTS+3, i);
 
 	te.Year = CalendarYrToTm(FAT_YEAR(fileDirEntry.lastWriteDate));
 	te.Month = FAT_MONTH(fileDirEntry.lastWriteDate);
@@ -1083,10 +1088,10 @@ uint16 _getFileTimeStamp() {
 	
 	days = tt / SECS_PER_DAY - DAYS_OFFSET_CPM_TO_UNIX;
 	_RamWrite16(fileTS+4, days);
-	i = hour(tt);
-	_RamWrite(fileTS+6, bin2bcd(i));
-	i = minute(tt);
-	_RamWrite(fileTS+7, bin2bcd(i));
+	i = 0x19;//bin2bcd(hour(tt));
+	_RamWrite(fileTS+6, i);
+	i = 0x16;//bin2bcd(minute(tt));
+	_RamWrite(fileTS+7, i);
 
 	return fileTS;
 }
@@ -1097,12 +1102,12 @@ void _getTime(uint16 timeBlk) {
 	_RamWrite16(timeBlk, days);
 	timeBlk += 2;
 	uint8 i;
-	i = hour(rightNow);
-	_RamWrite(timeBlk++, bin2bcd(i));
-	i = minute(rightNow);
-	_RamWrite(timeBlk++, bin2bcd(i));
-	i = second(rightNow);
-	_RamWrite(timeBlk++, bin2bcd(i));
+	i = bin2bcd(hour(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(minute(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(second(rightNow));
+	_RamWrite(timeBlk++, i);
 }
 
 void _setTime(uint16 timeBlk) {

@@ -38,6 +38,8 @@
 	#define BEEPER 20
 
 	#define GSX
+	//#define ST7735
+	#define ILI9341
 
 #elif defined CORE_TEENSY // Teensy 3.5 and 3.6
 	SdFatSdio SD;
@@ -65,9 +67,9 @@
 #define DELAY 200
 
 // Serial (terminal) port speed
-#define TERMINALPORT Serial
+#define TERMINALPORT Serial1
 #define SERIALSPD 115200
-
+#define STARTUP_DELAY   3000
 
 #include "abstraction_arduino.h"
 
@@ -99,9 +101,20 @@
 #endif
 
 void setup(void) {
+   int32 startup_delay = STARTUP_DELAY;
+   
 	pinMode(LED, OUTPUT);
 	digitalWrite(LED, LOW);
 
+   while (startup_delay > 0) {
+		digitalWrite(LED, HIGH^LEDinv);
+		delay(sDELAY);
+      startup_delay -= sDELAY;
+		digitalWrite(LED, LOW^LEDinv);
+		delay(sDELAY);
+      startup_delay -= sDELAY;
+	}
+   
 	TERMINALPORT.begin(SERIALSPD);
 	while (!TERMINALPORT) {	// Wait until serial is connected
 		digitalWrite(LED, HIGH^LEDinv);
@@ -121,10 +134,6 @@ void setup(void) {
 	}
 #endif
 		
-#if defined GSX
-	_gsx_init();
-#endif
-
 #ifdef DEBUGLOG
 	_sys_deletefile((uint8 *)LogName);
 #endif
@@ -164,6 +173,11 @@ void setup(void) {
 	if (SD.begin(SDINIT)) {
 #endif
 		SdFile::dateTimeCallback(_fatDateTime);
+
+#if defined GSX
+		_gsx_init();
+#endif
+
 		if (VersionCCP >= 0x10 || SD.exists(CCPname)) {
 			while (true) {
 				//_puts(CCPHEAD);

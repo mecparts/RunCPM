@@ -183,9 +183,9 @@ void _PatchCPM(void) {
 		_RamWrite(i++, 1);				// 0xFE2E - 1=ok to accept DU:, 0=not ok
 		_RamWrite(i++, 0);				// 0xFE2F - CRT selection
 		_RamWrite(i++, 0);				// 0xFE30 - Printer selection
-		_RamWrite(i++, 80);				// 0xFE31 - CRT 0: Width
-		_RamWrite(i++, 24);				// 0xFE32 - # of lines
-		_RamWrite(i++, 22);				// 0xFE33 - # of text lines
+		_RamWrite(i++, TERM_COLS);		// 0xFE31 - CRT 0: Width
+		_RamWrite(i++, TERM_ROWS);		// 0xFE32 - # of lines
+		_RamWrite(i++, TERM_ROWS - 2);// 0xFE33 - # of text lines
 		_RamWrite(i++, 132);				// 0xFE34 - CRT 1: Width
 		_RamWrite(i++, 24);				//	0xFE35 - # of lines
 		_RamWrite(i++, 22);				//	0xFE36 - # of text lines
@@ -303,6 +303,7 @@ void _PatchCPM(void) {
 
 		_RamWrite(i++, 0x1b);			// CDO cursor off
 		_RamWrite(i++, '[');
+		_RamWrite(i++, '?');
 		_RamWrite(i++, '2');
 		_RamWrite(i++, '5');
 		_RamWrite(i++, 'l');
@@ -310,6 +311,7 @@ void _PatchCPM(void) {
 
 		_RamWrite(i++, 0x1b);			// CDE cursor on
 		_RamWrite(i++, '[');
+		_RamWrite(i++, '?');
 		_RamWrite(i++, '2');
 		_RamWrite(i++, '5');
 		_RamWrite(i++, 'h');
