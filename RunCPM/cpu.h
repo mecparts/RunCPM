@@ -1485,7 +1485,8 @@ static inline void Z80run(void) {
 		fputs(iLogBuffer, iLogFile);
 		fclose(iLogFile);
 #endif
-
+		IR = (IR & 0xFF80) | ((IR + 1) & 0x7F);
+		
 		switch (RAM_PP(PC)) {
 
 		case 0x00:      /* NOP */
