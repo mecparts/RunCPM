@@ -546,15 +546,17 @@ uint8 _sys_makedisk(uint8 drive) {
 /* Console abstraction functions */
 /*===============================================================================*/
 void _putch(uint8 ch) {
+	TERMINALPORT.write(ch);
 #if defined BEEPER
-	if (ch != '\a') {
-#endif
-		TERMINALPORT.write(ch);
-#if defined BEEPER
-	} else {
+	if (ch == '\a') {
 		tone(BEEPER, 800, 200);
-	}
+	} else 
 #endif
+	if (ch == '\x0e') { // SO - 8 bit output
+		novaDOSflags |= HiOutFlag;
+	} else if (ch == '\x0f') { // SI - 7 bit output
+		novaDOSflags &= ~HiOutFlag;
+	}
 }
 
 #define KEY_TIMEOUT 5
@@ -596,6 +598,17 @@ int _kbhit(void) {
 			keyFifo[fifoTail] = c;
 			fifoTail = (fifoTail + 1) % FIFO_LNG;
 			++fifoCount;
+			if (c == '\x1b') {
+				timeout = millis() + KEY_TIMEOUT;
+				do {
+					if (TERMINALPORT.available()) {
+						keyFifo[fifoTail] = '\x1b';
+						fifoTail = (fifoTail + 1) % FIFO_LNG;
+						++fifoCount;
+						break;
+					}
+				} while (millis() < timeout);
+			}
 		}
 	} else {
 		do {
@@ -842,7 +855,7 @@ void _putpun(uint8 c) {
 
 // Set up the modem serial port for a new baud rate and possibly data format.
 // Largely untested, but does what I want for the moment.
-void _ioinit(uint16 iotab) {
+void _modeminit(uint16 iotab) {
 	uint32 newBaud = 0;
 	uint16 dataFmt = 0xFFFF;
 	
@@ -947,15 +960,17 @@ void _ioinit(uint16 iotab) {
 		default:
 			break;
 	}
-	if (newBaud) {
+	if (newBaud && newBaud != modemSpeed) {
+		modemSpeed = newBaud;
 		// code specific to changing the ESP8266 virtual modem baud rate
-		MODEMPORT.print("AT");
+		MODEMPORT.print("AT$SB=");
 		MODEMPORT.println(newBaud);
-		delay(150);	// wait for ESP8266 to change baud rate
-
+		delay(300);	// wait for ESP8266 to change baud rate
+		MODEMPORT.flush();
+		
 		// update the Teensy's serial port
 		if (dataFmt != 0xFFFF) {
-			MODEMPORT.begin(newBaud,dataFmt);
+			MODEMPORT.begin(newBaud);//###,dataFmt);
 		} else {
 			MODEMPORT.begin(newBaud);
 		}
@@ -982,7 +997,48 @@ void _putpun(uint8 c) {
 }
 
 // Set up the modem serial port for a new baud rate and possibly data format.
-void _ioinit(uint16 iotab) {
+void _modeminit(uint16 iotab) {
+}
+#endif
+
+#if defined LPT_PORT
+// Reads a given I2C register
+uint8 _readI2Cregister(uint8 addr) {
+  LPT_PORT.beginTransmission(LPT_ADDR);
+  LPT_PORT.write(addr);
+  LPT_PORT.endTransmission();
+  LPT_PORT.requestFrom(LPT_ADDR, 1);
+  return LPT_PORT.read();
+}
+
+// Writes a given I2C register
+void _writeI2Cregister(uint8 regAddr, uint8 regValue) {
+  LPT_PORT.beginTransmission(LPT_ADDR);
+  LPT_PORT.write(regAddr);
+  LPT_PORT.write(regValue);
+  LPT_PORT.endTransmission();
+}
+
+// send a character to the LPT device
+//
+// assumption: we don't enter this routine before the printer 
+// has had a chance to assert the busy signal from the last 
+// time we sent a character
+void _putlpt(uint8 c) {
+	uint8 lpt_ctrl = _readI2Cregister(LPT_GPIOB);
+	while( ~lpt_ctrl & LPT_BUSY ) {
+		lpt_ctrl = _readI2Cregister(LPT_GPIOB);
+	}
+	_writeI2Cregister(LPT_GPIOA, c);
+	delayMicroseconds(1);
+	_writeI2Cregister(LPT_GPIOB, lpt_ctrl & ~LPT_STROBE);
+	delayMicroseconds(1);
+	_writeI2Cregister(LPT_GPIOB, lpt_ctrl | LPT_STROBE);
+	delayMicroseconds(1);
+}
+
+#else
+void _putlpt(uint8 c) {
 }
 #endif
 

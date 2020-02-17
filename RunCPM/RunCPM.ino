@@ -2,6 +2,7 @@
 
 #include <SPI.h>
 #include <My_SdFat.h>  // One SD library to rule them all - Greinman SdFat from Library Manager
+#include <Wire.h>
 
 // SDCard/LED related definitions
 //
@@ -29,17 +30,34 @@
 	#define BOARD "Teensy 4.0"
 
 	#define MODEMPORT Serial3
-	#define MODEMSPD 38400
+	#define MODEMSPD 19200
 	#define MODEMRTS 18
 	#define MODEMCTS 19
 	#define MODEMDATABITS 8
 	#define MODEMSTOPBITS 1
 
+	uint32 modemSpeed = MODEMSPD;
+
+   #define LPT_PORT		Wire1
+   #define LPT_ADDR		0x20		// MCP23017 I2C address
+
+	// MCP23017 registers
+   #define LPT_IODIRA	0x00
+   #define LPT_IODIRB	0x01
+   #define LPT_IOCON		0x0A
+   #define LPT_GPPUB		0x0D		// pull ups for control port
+   #define LPT_GPIOA		0x12		// LPT data port
+   #define LPT_GPIOB		0x13		// LPT status/control port
+
+   #define LPT_CONFIG	0x20		// SEQOP
+   #define LPT_BUSY		0x01		// /BUSY on GPIOB.1
+   #define LPT_STROBE	0x02		// /STROBE out on GPIOB.2
+   
 	#define BEEPER 20
 
-	#define GSX
+	//#define GSX
 	//#define ST7735
-	#define ILI9341
+	//#define ILI9341
 
 #elif defined CORE_TEENSY // Teensy 3.5 and 3.6
 	SdFatSdio SD;
@@ -78,13 +96,6 @@
 #endif
 #ifdef _STM32_DEF_	// STM32 specific CP/M BDOS call routines
 	#include "stm32.h"
-#endif
-
-// LST: device configuration
-#ifdef USE_LST
-	File lst_dev;
-	int lst_open = FALSE;
-	uint8 lst_chrCount = 0;
 #endif
 
 #include "ram.h"
@@ -132,6 +143,15 @@ void setup(void) {
 		TERMINALPORT.println("Could not attach CTS.");
 		return;
 	}
+#endif
+
+#ifdef LPT_PORT
+	LPT_PORT.begin();
+	_writeI2Cregister(LPT_IOCON, LPT_CONFIG);	// IOCON.SEQOP
+	_writeI2Cregister(LPT_GPPUB, LPT_BUSY);	// enable /BUSY pull up resistor
+	_writeI2Cregister(LPT_IODIRA, 0x00);		// data port all outputs
+	_writeI2Cregister(LPT_GPIOB, LPT_STROBE);	// make sure /STROBE starts inactive
+	_writeI2Cregister(LPT_IODIRB, LPT_BUSY);	// /BUSY is an input; all others out
 #endif
 		
 #ifdef DEBUGLOG
@@ -198,11 +218,6 @@ void setup(void) {
 				if (Status == CBOOT) {
 					break;
 				}
-#ifdef USE_LST
-				if (lst_dev) {
-					_sys_fflush(lst_dev);
-				}
-#endif
 			}
 		} else {
 			_puts("Unable to load CP/M CCP.\r\nCPU halted.\r\n");

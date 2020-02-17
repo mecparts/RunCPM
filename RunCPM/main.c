@@ -34,18 +34,6 @@ shoud be kept the same.
 #endif
 #endif
 
-// AUX: device configuration
-#ifdef USE_PUN
-FILE* pun_dev;
-int pun_open = FALSE;
-#endif
-
-// PRT: device configuration
-#ifdef USE_LST
-FILE* lst_dev;
-int lst_open = FALSE;
-#endif
-
 #include "ram.h"		// ram.h - Implements the RAM
 #include "console.h"	// console.h - Defines all the console abstraction functions
 #include "cpu.h"		// cpu.h - Implements the emulated CPU
@@ -93,14 +81,6 @@ int main(int argc, char* argv[]) {
 #endif
 		if (Status == 1)	// This is set by a call to BIOS 0 - ends CP/M
 			break;
-#ifdef USE_PUN
-		if (pun_dev)
-			_sys_fflush(pun_dev);
-#endif
-#ifdef USE_LST
-		if (lst_dev)
-			_sys_fflush(lst_dev);
-#endif
 	}
 
 	_console_reset();

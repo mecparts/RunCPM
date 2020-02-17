@@ -6,9 +6,6 @@
 #include <ctype.h>
 #endif
 
-/* Definitions for enabling and LST: device */
-#define USE_LST
-
 /* Definitions for file/console based debugging */
 //#define DEBUG
 //#define DEBUGLOG		// Writes extensive call trace information to RunCPM.log

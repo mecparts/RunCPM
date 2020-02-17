@@ -429,9 +429,6 @@ uint8 _SearchNext(uint16 fcbaddr, uint8 isdir) {
 // Deletes a file
 uint8 _DeleteFile(uint16 fcbaddr) {
 	CPM_FCB* F = (CPM_FCB*)_RamSysAddr(fcbaddr);
-#if defined(USE_LST)
-	CPM_FCB* T = (CPM_FCB*)_RamSysAddr(tmpFCB);
-#endif
 	uint8 result = 0xff;
 	uint8 deleted = 0xff;
 
@@ -439,12 +436,6 @@ uint8 _DeleteFile(uint16 fcbaddr) {
 		if (!RW) {
 			result = _SearchFirst(fcbaddr, FALSE);	// FALSE = Does not create a fake dir entry when finding the file
 			while (result != 0xff) {
-#ifdef USE_LST
-				if (!strcmp((char*)T->fn, "LST     TXT") && lst_open) {
-					_sys_fclose(lst_dev);
-					lst_open = FALSE;
-				}
-#endif
 				_FCBtoHostname(tmpFCB, &filename[0]);
 				if (_sys_deletefile(&filename[0]))
 					deleted = 0x00;

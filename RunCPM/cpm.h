@@ -9,11 +9,6 @@
 #define INa		0xdb	// Triggers a BIOS call
 #define OUTa	0xd3	// Triggers a BDOS call
 
-/* set up full LST filename to be on drive A: user 0 */
-#ifdef USE_LST
-char lst_file[17] = { 'A',FOLDERCHAR,'0',FOLDERCHAR,'L','S','T','.','T','X','T',0 };
-#endif
-
 #ifdef PROFILE
 unsigned long time_start = 0;
 unsigned long time_now = 0;
@@ -222,14 +217,16 @@ void _PatchCPM(void) {
 		}
 		_RamWrite(i++,0);				// 0xFE7E - Public drive area (ZRDOS +)
 		_RamWrite(i++,0);				// 0xFE7F - Public user area (ZRDOS +)
-		//						 123456789012345
-		char terminal[] = "DEC-VT100      ";
+		//						 1234567890123
+		char terminal[] = "DEC-VT100    ";
 		c = 0;
 		while( terminal[c] ) {
 			_RamWrite(i++,terminal[c]);
 			++c;
 		}
-		_RamWrite(i++, 0);				// capabilities byte
+		_RamWrite(i++, 0x50);			// graphics offset
+		_RamWrite(i++, 0x80);			// config byte B14
+		_RamWrite(i++, 0x10);			// config byte B15
 		_RamWrite(i++, 'E'-'@');		// Cursor UP (Wordstar Defaults)
 		_RamWrite(i++, 'X'-'@');		// Cursor DOWN
 		_RamWrite(i++, 'D'-'@');		// Cursor RIGHT
@@ -239,10 +236,6 @@ void _PatchCPM(void) {
 		_RamWrite(i++, 3);				// CE Delay
 		
 		_RamWrite(i++, 0x1b);			// CL String
-		_RamWrite(i++, '[');
-		_RamWrite(i++, ';');
-		_RamWrite(i++, 'H');
-		_RamWrite(i++, 0x1b);
 		_RamWrite(i++, '[');
 		_RamWrite(i++, '2');
 		_RamWrite(i++, 'J');
@@ -279,7 +272,9 @@ void _PatchCPM(void) {
 		_RamWrite(i++, 0);				// TI string (terminal init)
 		
 		_RamWrite(i++, 0);				// TE string; (terminal deinit);
-		
+//
+// Extensions to standard Z3TCAP
+//
 		_RamWrite(i++, 0x1b);			// DL line delete
 		_RamWrite(i++, '[');
 		_RamWrite(i++, 'M');
@@ -294,12 +289,39 @@ void _PatchCPM(void) {
 		_RamWrite(i++, '[');
 		_RamWrite(i++, 'J');
 		_RamWrite(i++, 0);
-		
+//
+// The attribute string contains the four command characters to set
+// the following four attributes for this terminal in the following
+// order:  	Normal, Blink, Reverse, Underscore
+//
+		_RamWrite(i++, 0x1b);
+		_RamWrite(i++, '[');
+		_RamWrite(i++, '%');
+		_RamWrite(i++, '+');
+		_RamWrite(i++, '0');
+		_RamWrite(i++, 'm');
+		_RamWrite(i++, 0);
+//
+// attribute string
+//
+		_RamWrite(i++, '0');
+		_RamWrite(i++, '5');
+		_RamWrite(i++, '7');
+		_RamWrite(i++, '4');
+		_RamWrite(i++, 0);
+
+		_RamWrite(i++, 0);				// Read current cursor position
+		_RamWrite(i++, 0);				// Read line until cursor
+//
+// Graphics TCAP area
+//
 		_RamWrite(i++, 0);				// GO graphics on/off delay
 
-		_RamWrite(i++, 0);				// GS graphics on
+		_RamWrite(i++, '\x0e');			// GS graphics on
+		_RamWrite(i++, 0);
 
-		_RamWrite(i++, 0);				// GE graphics off
+		_RamWrite(i++, '\x0f');			// GE graphics off
+		_RamWrite(i++, 0);
 
 		_RamWrite(i++, 0x1b);			// CDO cursor off
 		_RamWrite(i++, '[');
@@ -316,33 +338,22 @@ void _PatchCPM(void) {
 		_RamWrite(i++, '5');
 		_RamWrite(i++, 'h');
 		_RamWrite(i++, 0);
-
-		_RamWrite(i++, 0);				// GULC upper left corner
-
-		_RamWrite(i++, 0);				// GURC upper right corner
-
-		_RamWrite(i++, 0);				// GLLC lower left corner
-
-		_RamWrite(i++, 0);				// GLrC lower right corner
-
-		_RamWrite(i++, 0);				// GHL horizontal line
-
-		_RamWrite(i++, 0);				// GVL vertical line
-
-		_RamWrite(i++, 0);				// GFB full block
-
-		_RamWrite(i++, 0);				// GHB hashed block
-
-		_RamWrite(i++, 0);				// GUI upper intersection
-
-		_RamWrite(i++, 0);				// GLI lower intersection
-
-		_RamWrite(i++, 0);				// GIS intersection
-
-		_RamWrite(i++, 0);				// GRTI right intersection
-
-		_RamWrite(i++, 0);				// GLTI left intersection
-		
+//
+// Graphics characters
+//
+		_RamWrite(i++, 0xDA);			// GULC upper left corner
+		_RamWrite(i++, 0xBF);			// GURC upper right corner
+		_RamWrite(i++, 0xC0);			// GLLC lower left corner
+		_RamWrite(i++, 0xD9);			// GLrC lower right corner
+		_RamWrite(i++, 0xC4);			// GHL horizontal line
+		_RamWrite(i++, 0xB3);			// GVL vertical line
+		_RamWrite(i++, 0xDB);			// GFB full block
+		_RamWrite(i++, 0xB1);			// GHB hashed block
+		_RamWrite(i++, 0xC2);			// GUI upper intersection
+		_RamWrite(i++, 0xC1);			// GLI lower intersection
+		_RamWrite(i++, 0xC5);			// GIS intersection
+		_RamWrite(i++, 0xB4);			// GRTI right intersection
+		_RamWrite(i++, 0xC3);			// GLTI left intersection
 		_RamWrite(i++, 0);
 #endif
 		firstTime = FALSE;
@@ -536,9 +547,10 @@ void _Bios(void) {
 		_putcon(LOW_REGISTER(BC));
 		break;
 	case 0x0F:				// 5 - LIST - List output
+		_putlpt(LOW_REGISTER(BC));
 		break;
 	case 0x12:				// 6 - PUNCH/AUXOUT - Punch output
-      _putpun(LOW_REGISTER(BC));
+		_putpun(LOW_REGISTER(BC));
 		break;
 	case 0x15:				// 7 - READER - Reader input
 		SET_HIGH_REGISTER(AF, _getrdr());
@@ -574,15 +586,15 @@ void _Bios(void) {
 	case 0x33:				// 17 - RETTOCCP - This allows programs ending in RET return to internal CCP
 		Status = RETCCP;
 		break;
-   case 0x36:           // 18 - IOINIT - serial port configuration
-   	_ioinit(BC);
-      break;
-   case 0x39:           // 19 - TTYIST - TTY input (RDR:) status
-      HL = _ttyist();
-      break;
-   case 0x3C:
-      HL = _ttyost();   // 20 - TTYOST - TTY output (PUN:) status
-      break;
+	case 0x36:           // 18 - MODEMINIT - serial port configuration
+		_modeminit(BC);
+		break;
+	case 0x39:           // 19 - TTYIST - TTY input (RDR:) status
+		HL = _ttyist();
+		break;
+	case 0x3C:
+		HL = _ttyost();   // 20 - TTYOST - TTY output (PUN:) status
+		break;
 	default:
 #ifdef DEBUG	// Show unimplemented BIOS calls only when debugging
 		_puts("\r\nUnimplemented BIOS call.\r\n");
@@ -656,25 +668,13 @@ void _Bdos(void) {
 		C = 4 : Auxiliary (Punch) output
 		*/
 	case 4:
-      _putpun(LOW_REGISTER(DE));
+		_putpun(LOW_REGISTER(DE));
 		break;
 		/*
 		C = 5 : Printer output
 		*/
 	case 5:
-#ifdef USE_LST
-		if (!lst_open) {
-			lst_dev = _sys_fopen_w((uint8*)lst_file);
-			lst_open = TRUE;
-		}
-		if (lst_dev) {
-			_sys_fputc(LOW_REGISTER(DE), lst_dev);
-			if (++lst_chrCount > 32) {
-				_sys_fflush(lst_dev);
-				lst_chrCount = 0;
-			}
-		}
-#endif
+		_putlpt(LOW_REGISTER(DE));
 		break;
 		/*
 		C = 6 : Direct console IO
@@ -1043,8 +1043,8 @@ void _Bdos(void) {
 		break;
 		/*
 		C = 55 : Use creation date and last modified date and time stored
-               by Get Stamp instead of real time for the next Write,
-               Make File or Close File call.
+					by Get Stamp instead of real time for the next Write,
+					Make File or Close File call.
 		*/
 	case 55:		// NovaDOS, Z80DOS
 		useFileStamp = true;
