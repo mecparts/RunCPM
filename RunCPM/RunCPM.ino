@@ -1,7 +1,7 @@
 #include "globals.h"
 
 #include <SPI.h>
-#include <My_SdFat.h>  // One SD library to rule them all - Greinman SdFat from Library Manager
+#include <SdFat.h>  // One SD library to rule them all - Greinman SdFat from Library Manager
 #include <Wire.h>
 
 // SDCard/LED related definitions
