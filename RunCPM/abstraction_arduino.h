@@ -93,31 +93,13 @@ int _sys_setfileattributes(uint8* filename, uint16 fcbaddr) {
 	CPM_FCB *F = (CPM_FCB*)_RamSysAddr(fcbaddr);
 	uint8 result = false;
 	File f;
-	dir_t dirEntry;
 
 	digitalWrite(LED, HIGH ^ LEDinv);
-	if (f = SD.open((char*)filename, O_RDONLY)) {
-		f.dirEntry(&dirEntry);
-		if (F->fn[1] & 0x80) {
-			dirEntry.attributes |= DIR_ATT_HIDDEN;
-		} else {
-			dirEntry.attributes &= ~DIR_ATT_HIDDEN;
-		}
-		if (F->tp[0] & 0x80) {
-			dirEntry.attributes |= DIR_ATT_READ_ONLY;
-		} else {
-			dirEntry.attributes &= ~DIR_ATT_READ_ONLY;
-		}
-		if (F->tp[1] & 0x80) {
-			dirEntry.attributes |= DIR_ATT_SYSTEM;
-		} else {
-			dirEntry.attributes &= ~DIR_ATT_SYSTEM;
-		}
-		if (F->tp[2] & 0x80) {
-			dirEntry.attributes |= DIR_ATT_ARCHIVE;
-		} else {
-			dirEntry.attributes &= ~DIR_ATT_ARCHIVE;
-		}
+	if ((f = SD.open((char*)filename, O_RDONLY))) {
+		f.makeHidden(F->fn[1] & 0x80);
+		f.makeReadOnly(F->tp[0] & 0x80);
+		f.makeSystem(F->tp[1] & 0x80);
+		f.makeArchive(F->tp[2] & 0x80);
 		f.close();
 		result = TRUE;
 	}
