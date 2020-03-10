@@ -260,14 +260,14 @@ static uint8 RAM[MEMSIZE];
 
 #define BIOSpage		(BIOS_TOP - 256)
 #define BIOSjmppage	(BIOSpage - 256)
+#define DPBaddr	(BIOSpage + 256 - 16)	// Address of the Disk Parameters Block (Hardcoded in BIOS)
 
 
 // BDOS Pages (depend on CPMSIZE)
 #define BDOSsize		0x0E00
 #define BDOSjmppage	(BIOSjmppage - BDOSsize)
-#define BDOSpage		(BDOSjmppage + 256)
+#define BDOSpage		(BDOSjmppage + 1024)
 
-#define DPBaddr	(BIOSpage + 64)	// Address of the Disk Parameters Block (Hardcoded in BIOS)
 #define SCBaddr	(BDOSpage + 16)	// Address of the System Control Block
 #define tmpFCB 	(BDOSpage + 64)	// Address of the temporary FCB
 #define fileTS		(BDOSpage + 128)	// address of the timestamp of the last open/found file
@@ -307,7 +307,8 @@ enum NovaDOSflags {
 	PubROFlag = 1<<4,
 	RbldVecFlag = 1<<5
 };
-static uint8	novaDOSflags = PublicFlag | CtrlSFlag | RbldVecFlag;
+static uint8	novaDOSflags = PublicFlag | RbldVecFlag | CtrlSFlag;
+static uint8   ctrlScount = 0;
 	
 #define tohex(x)	((x) < 10 ? (x) + 48 : (x) + 87)
 

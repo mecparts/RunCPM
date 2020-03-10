@@ -801,6 +801,15 @@ uint8 _getch(void) {
 	return(c & ((novaDOSflags & HiInFlag) ? 0xFF : 0x7F));
 }
 
+// non destructive peek at next available character
+uint8 _peekch(void) {
+	if (!_kbhit()) {
+		return (uint8)0;
+	} else {
+		return keyFifo[fifoHead];
+	}
+}
+
 // wait for an echo a keypress
 uint8 _getche(void) {
 	uint8 ch = _getch();
@@ -1002,18 +1011,20 @@ void _writeI2Cregister(uint8 regAddr, uint8 regValue) {
   LPT_PORT.endTransmission();
 }
 
+uint8 _listst(void) {
+	return (_readI2Cregister(LPT_GPIOB) & LPT_BUSY) ? 0xFF : 0x00;
+}
+
 // send a character to the LPT device
 //
 // assumption: we don't enter this routine before the printer 
 // has had a chance to assert the busy signal from the last 
 // time we sent a character
 void _putlpt(uint8 c) {
-	uint8 lpt_ctrl = _readI2Cregister(LPT_GPIOB);
-	while( ~lpt_ctrl & LPT_BUSY ) {
-		lpt_ctrl = _readI2Cregister(LPT_GPIOB);
-	}
+	while( _listst() == 0x00);
 	_writeI2Cregister(LPT_GPIOA, c);
 	delayMicroseconds(1);
+	uint8 lpt_ctrl = _readI2Cregister(LPT_GPIOB);
 	_writeI2Cregister(LPT_GPIOB, lpt_ctrl & ~LPT_STROBE);
 	delayMicroseconds(1);
 	_writeI2Cregister(LPT_GPIOB, lpt_ctrl | LPT_STROBE);
@@ -1022,6 +1033,10 @@ void _putlpt(uint8 c) {
 
 #else
 void _putlpt(uint8 c) {
+}
+
+uint8 _listst(void) {
+	return 0xFF;
 }
 #endif
 

@@ -1,0 +1,385 @@
+	.Z80
+;
+; CIOS : A Console I/O System for RunCPM
+;
+;	In a normal RunCPM system, the simulated BDOS does not
+;	call the simulated BIOS. This means that ZEX (and any
+;	other programs that hijack the BIOS console I/O) won't
+;	work. This little bit of Z80 code fixes that.
+;
+;	This is he console only bits of a real BDOS so that ZEX
+;	can redirect the BIOS console I/O. When other programs
+;	make call BDOS console I/O calls, these routines end
+;	up calling the redirected BIOS entry points.
+;
+;
+;	March 7 2020 Wayne Hortensius
+;
+include	cios.lib
+	
+bios		equ	0f200h		; Change this to your BIOS jump page address
+
+wbootBIOS	equ	bios+00003h	; system warm boot
+constBIOS	equ	bios+00006h	; system console status
+coninBIOS	equ	bios+00009h	; system console input
+conoutBIOS	equ	bios+0000ch	; system console output
+conpeekBIOS	equ	bios+0003fh	; system console input peek
+;
+; Internal definitions
+;
+ctrlC	equ	003h			; warm boot char
+ctrlE	equ	005h			; break line
+BS	equ	008h			; delete last char
+TAB	equ	009h			; horizontal tab
+LF	equ	00ah			; line feed
+CR	equ	00dh			; carriage return
+ctrlQ	equ	011h			; restart console output
+ctrlR	equ	012h			; repeat line
+ctrlS	equ	013h			; pause console output
+ctrlU	equ	015h			; delete line (backspaces)
+ctrlX	equ	018h			; delete line (backspaces)
+ESC	equ	01Bh			; ESCape
+rubout	equ	07fh			; delete last char
+;
+	ASEG
+;
+	db	0,22,0,0,0,0		; CP/M 2.2 serial #
+;
+; Start BDOS
+;
+start:	jp	entry			; Jump to entry point
+;
+dtime:	db	0			; BDOSpage + 9
+flags:	db	0			; BDOSpage + 10
+delay:	db	0ffh
+pexit:	dw	0
+funct:	db	0
+spsave:	dw	0
+	dw	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+bdosStack:
+;
+; Entry point BDOS commands
+;
+entry:	ld	a,c
+	ld	(funct),a
+	ld	hl,0
+	ld	(pexit),hl		; Clear exit code
+	ld	(spsave),sp		; Save stack pointer
+	ld	sp,bdosStack		; Get internal stack pointer
+	push	ix			; Save index register
+	push	de			; Save parameter register
+	pop	ix			; Get it back in ix
+	ld	hl,ciosExit		; Get CIOS exit address
+	push	hl			; Save it on stack to return from BDOS
+	ld	a,c			; Get function code
+;
+	cp	maxcmd+1		; Test greater then maxcmd 
+	jr	c,lowcmd		; we handle wboot and console i/o
+runcpm:	
+	pop	de			; get rid of ciosExit value
+	push	ix			; Push original value of DE
+	pop	de			; Restore original value of DE
+	pop	ix			; Restore original value of IX
+	ld	a,(funct)		; restore BDOS call # to C
+	ld	c,a			; for RunCPM's BDOS
+	ld	sp,(spsave)		; Get old sp
+	in	a,(0)			; let RunCPM handle the rest
+	ret
+;
+lowcmd:
+	ld	hl,ctable		; Load table
+	ld	b,0			; Prepare 16 bit add
+	add	hl,bc			; Add
+	add	hl,bc			; Add twice to get word value
+	ld	a,(hl)			; Get LSB
+	inc	hl			; Pointer to MSB
+	ld	h,(hl)			; Get MSB
+	ld	l,a			; Save LSB in l 
+	ld	c,e			; Put argument in C for BIOS
+	ld	a,e			; Put argument in A for DOS
+	jp	(hl)			; Jump to routine
+;
+; Command table
+;
+;
+; Func	Name			Input Parameters	Returned Values
+;   0	boot			none			none
+;   1	console input		none			a=character
+;   2	console output		e=character		a=00h
+;   6	direct console I/O	e=0ffh			a=input character
+;							a=00h if no character 
+;								present
+;				e=0feh			a=console status
+;				e=000h..0fdh		a=00h
+;   9	print string		de=address string	a=00h
+;  10	read console buffer	de=address buffer	a=00h
+;  11	get console status	none			a=00h if no character 
+;								present
+;							01h if character present
+ctable:	defw	wbootBIOS		; 0 Warm boot 
+	defw	rdcon			; 1 Console input
+	defw	wrcon			; 2 Console output
+	defw	runcpm			; 3 Reader input
+	defw	runcpm			; 4 Punch output	- BIOS direct
+	defw	runcpm			; 5 List output		- BIOS direct
+	defw	dcio			; 6 Direct console I/O
+	defw	runcpm			; 7 Get I/O byte
+	defw	runcpm			; 8 Set I/O byte
+	defw	mess			; 9 Print string
+	defw	rdbuf			; 10 Read console buffer
+	defw	const			; 11 Get console status
+maxcmd	equ	($-ctable)/2-1
+;
+;
+;==================================================================
+; Output char (control char = ^char)
+;
+outch:	call	tstch			; Test if cr,lf,tab,BS or >=space
+	jr	nc,wrcon		; Yes then jump
+	push	af			; Save character
+	ld	a,'^'			; Load a with '^' 
+	call	wrcon			; Output it
+	pop	af			; Get character back
+	push	af			; Save it again
+	add	a,'A'-1			; Add offset
+	call	wrcon			; Output it
+	pop	af			; Get character
+	ret				; Return to caller
+;
+; Test character
+; Exit carry=0: cr,lf,tab,BS or >= space
+;      carry=1: All other characters
+;
+tstch:	cp	CR			; Test carriage return
+	ret	z			; Return if so
+	cp	LF			; Test line feed
+	ret	z			; Return if so
+	cp	TAB			; Test tab
+	ret	z			; Return if so
+	cp	BS			; Test backspace
+	ret	z			; Return if so
+	cp	rubout			; test for DEL (rubout)
+	ret	z			; return if so
+	cp	' '			; Test >=space
+	ret				; Return to caller
+;
+; Destructive backspace over previous char
+; Entry : hl = buffer pointer
+;         (IX+1) = character counter (always>0)
+;
+delch:	dec	(ix+1)			; Decrement character counter
+	dec	hl
+	push	ix
+	push	hl
+	ld	c,BS			; BS, space, BS
+	call	conoutBIOS
+	ld	c,' '
+	call	conoutBIOS
+	ld	c,BS
+	call	conoutBIOS
+	pop	hl
+	pop	ix
+	ret
+;	
+;
+;===================================================================
+; BDOS 11 Test console status
+;
+const:	call	constBIOS		; Get console status
+	jr	exit			; And return it to caller
+;
+; Console I/O routines
+;
+;===================================================================
+; BDOS 1 console input
+;
+; Read character from console and echo
+;
+rdcon:	call	coninBIOS		; Get character
+	push	af
+	ld	c,a
+	call	conoutBIOS		; echo character
+	pop	af
+exit:	ld	(pexit),a		; Return character 
+	ret				; And exit BDOS
+;
+;
+;===================================================================
+; BDOS 2 write console
+;
+wrcon:	push	af			; Save character
+	call	constBIOS
+	or	a
+	jr	z,wrcon1		; no input waiting
+	call	conpeekBIOS
+	cp	ctrlS			; ^S? (request to pause output)
+	jr	nz,wrcon1		; no, output the character
+	call	coninBIOS		; eat ^S
+wrcon0:
+	call	coninBIOS		; wait for the next character
+	cp	ctrlC			; ^C?
+	jp	z,wbootBIOS		; yes, warm boot
+	cp	ctrlQ			; ^Q?
+	jr	nz,wrcon0		; loop until ^Q resumes or ^C reboots
+wrcon1:
+	pop	af			; Get character back
+	ld	c,a
+	jp	conoutBIOS		; Output it
+;
+;
+;===================================================================
+; BDOS 6 Direct console input/output
+;
+dcio:	inc	e			; Test if 0ffh
+	jr	z,dcin			; Yes do input
+	inc	e			; Test if 0feh
+	jp	nz,conoutBIOS		; No, just output char (already in C)
+	call	constBIOS		; Get console status
+	jr	exit			; And return it to caller
+dcin:	call	constBIOS		; Get character if available
+	or	a
+	jr	z,exit
+	call	coninBIOS
+	jr	exit			; And return it to caller
+;
+;
+;===================================================================
+; BDOS 9 Output message
+;
+mess:	ld	a,(de)			; Get byte from buffer
+	cp	'$'			; Test last byte
+	ret	z			; Yes, then return to caller
+	inc	de			; Point to next byte
+	push	de			; Save pointer
+	call	wrcon			; Output character
+	pop	de			; Restore pointer
+	jr	mess			; And test again
+;
+;
+;===================================================================
+; BDOS 10 Read buffer
+; In:  (IX)   -> max # characters to read
+;      (IX+2) -> read buffer
+; Out: (IX+1) -> # characters in buffer
+;      (IX+2..) -> characters read
+;
+rdbuf:	push	ix
+	pop	hl			; get buffer pointer in HL
+	inc	hl			; point to read buffer
+	ld	(ix+1),0		; clear line length counter
+;
+rdblp:	push	ix
+	push	hl			; Save registers
+rdbget:	call	coninBIOS		; Get character
+	pop	hl
+	pop	ix
+	cp	ctrlC			; ^C warm boot
+	jr	z,rdbC
+	cp	ctrlE			; ^E new line
+	jr	z,rdbnl
+	cp	BS			; ^H backspace
+	jr	z,rdbBS
+	cp	rubout			; DEL backspace
+	jr	z,rdbBS
+	cp	CtrlR			; ^R retype line
+	jr	z,rdbrpt
+	cp	CtrlU			; ^U erase all
+	jr	z,rdbera
+	cp	CtrlX			; ^X erase all
+	jr	z,rdbera
+	cp	CR			; CR end
+	jr	z,rdbeol
+	cp	LF			; LF end
+	jr	z,rdbeol
+	cp	' '			; [' '..'~'] ? add to buffer
+	jr	c,rdblp
+	cp	'~'+1
+	jr	nc,rdblp		; ignore anything else
+;
+	inc	hl			; increment buffer pointer
+	ld	(hl),a			; store character
+	inc	(ix+1)			; increment char counter
+	push	ix
+	push	hl			; save registers
+	call	outch			; echo character
+	pop	hl			; restore registers
+	pop	ix
+	ld	a,(ix+1)		; get line count
+	cp	(ix+0)			; test line length=maximum line length
+	jr	nz,rdblp
+rdbeol:	ld	a,cr			; echo a carriage return
+	jp	wrcon
+;
+rdbC:	ld	a,(ix+1)
+	or	a			; is ^C the first char?
+	jr	nz,rdblp		; no, ignore it
+	ld	a,CtrlC			; yes, echo it
+	call	outch
+	xor	a			; make sure no use stamp flag is
+	ld	(dtime),a		; around when we warm boot
+	jp	0
+;
+rdbNl:	push	ix
+	push	hl			; Save registers
+	ld	a,cr			; move cursor to
+	call	wrcon			; start of next line
+	ld	a,lf
+	call	wrcon
+	jr	rdbget			; and get next char
+;
+rdbBS:	ld	a,(ix+1)		; test if empty line
+	or	a
+	call	nz,delch		; no, delete last character
+	jr	rdblp			; get next character
+;
+rdbera:	ld	a,(ix+1)		; Test if last character deleted
+	or	a
+	jr	z,rdblp			; Yes, ready for new input
+	call	delch			; Delete last character line
+	jr	rdbera			; Test last character deleted
+;
+rdbrpt:	push	ix			; redraw the current line
+	push	hl
+	ld	a,cr			; start a new line
+	call	wrcon
+	ld	a,lf
+	call	wrcon
+	push	ix
+	pop	hl
+	inc	hl
+	inc	hl
+	ld	b,(ix+1)		; get # of characters in line
+	ld	a,b
+	or	a
+	jr	z,rptdone		; if it's empty, we're all done
+rptloop:
+	push	hl
+	push	bc
+	ld	a,(hl)
+	call	wrcon			; write each character
+	pop	bc
+	pop	hl
+	inc	hl
+	djnz	rptloop
+rptdone:
+	jp	rdbget
+;
+; ---------------------------------------------------------
+; CIOS exit routine
+;
+ciosExit:
+	xor	a
+	ld	(dtime),a		; turn off DOS time
+	push	ix			; Save ix
+	pop	de			; Restore de
+	pop	ix			; Restore ix
+	ld	sp,(spsave)		; Get old sp
+	ld	hl,(pexit)		; Get exit code
+	ld	a,(funct)		; Get function code
+	ld	c,a			; Restore c
+	ld	a,l			; Copy function code
+	ld	b,h
+	ret				; And return to caller
+
+	end
+

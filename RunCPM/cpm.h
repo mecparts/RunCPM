@@ -16,6 +16,8 @@ unsigned long time_now = 0;
 
 static uint8 firstTime = TRUE;
 
+#include "cios.h"
+
 void _PatchCPM(void) {
 	uint16 i;
 
@@ -37,6 +39,17 @@ void _PatchCPM(void) {
 	_RamWrite16(0x0006, BDOSjmppage + 0x06);
 
 	//**********  Patch CP/M Version into the memory so the CCP can see it
+#ifdef USE_CIOS
+	// patch in page relocated CIOS
+	for (uint16 i=0; i<sizeof cios; ++i) {
+		if (cios_prl[i>>3] & (1 << (i % 8))) {
+			_RamWrite(BDOSjmppage + i, (cios[i] + (BDOSjmppage >> 8)));
+		} else {
+			_RamWrite(BDOSjmppage + i, cios[i]);
+		}
+	}
+#else
+ 	//**********  Patch CP/M Version into the memory so the CCP can see it
 	_RamWrite16(BDOSjmppage, 0x1600);
 	_RamWrite16(BDOSjmppage + 2, 0x0000);
 	_RamWrite16(BDOSjmppage + 4, 0x0000);
@@ -49,22 +62,22 @@ void _PatchCPM(void) {
 	_RamWrite(BDOSpage, INa);
 	_RamWrite(BDOSpage + 1, 0x00);
 	_RamWrite(BDOSpage + 2, RET);
-
+#endif
 	if (firstTime) {
 		// Patches in the BIOS jump destinations
-		for (i = 0; i < 0x3F; i = i + 3) {
+		for (i = 0; i < 0x42; i = i + 3) {
 			_RamWrite(BIOSjmppage + i, JP);
 			_RamWrite16(BIOSjmppage + i + 1, BIOSpage + i);
 		}
 
 		// Patches in the BIOS page content
-		for (i = 0; i < 0x3F; i = i + 3) {
+		for (i = 0; i < 0x42; i = i + 3) {
 			_RamWrite(BIOSpage + i, OUTa);
 			_RamWrite(BIOSpage + i + 1, i & 0xff);
 			_RamWrite(BIOSpage + i + 2, RET);
 		}
 
-		//**********  Patch CP/M (fake) Disk Paramater Table after the BDOS call entry  **********
+		//**********  Patch CP/M (fake) Disk Parameter Table after the BDOS call entry  **********
 		i = DPBaddr;
 		_RamWrite(i++, 64);  		/* spt - Sectors Per Track */
 		_RamWrite(i++, 0);
@@ -140,7 +153,7 @@ void _PatchCPM(void) {
 		_RamWrite(i++, 'N');
 		_RamWrite(i++, 'V');
 
-		_RamWrite(i++, 1);				// 0xFE08 - class 1 environment (external);
+		_RamWrite(i++, 0x80);			// 0xFE08 - extended environment
 
 		_RamWrite16(i, EXPATH); i+=2;	// 0xFE09 - external path (PATH)
 		_RamWrite(i++, EXPATH_S);
@@ -181,25 +194,25 @@ void _PatchCPM(void) {
 		_RamWrite(i++, TERM_COLS);		// 0xFE31 - CRT 0: Width
 		_RamWrite(i++, TERM_ROWS);		// 0xFE32 - # of lines
 		_RamWrite(i++, TERM_ROWS - 2);// 0xFE33 - # of text lines
-		_RamWrite(i++, 132);				// 0xFE34 - CRT 1: Width
-		_RamWrite(i++, 24);				//	0xFE35 - # of lines
-		_RamWrite(i++, 22);				//	0xFE36 - # of text lines
+		_RamWrite16(i, 0x003F);			// 0xFE34 - valid drive vector (A-F)
+		i += 2;
+		_RamWrite(i++, 0);				//	0xFE36 - spare
 		_RamWrite(i++, 80);				// 0xFE37 - PRT 0: Width
 		_RamWrite(i++, 66);				// 0xFE38 - # of lines
 		_RamWrite(i++, 58);				//	0xFE39 - # of text lines
 		_RamWrite(i++, 1);				//	0xFE3A - FF flag (1=can form feed)
-		_RamWrite(i++, 96);				// 0xFE3B - PRT 1: Width
-		_RamWrite(i++, 66);				//	0xFE3C - # of lines
-		_RamWrite(i++, 58);				//	0xFE3D - # of text lines
-		_RamWrite(i++, 1);				// 0xFE3E - FF flag (1=can form feed)
-		_RamWrite(i++, 132);				// 0xFE3F - PRT 2: Width
-		_RamWrite(i++, 66);				// 0xFE40 - # of lines
-		_RamWrite(i++, 58);				//	0xFE41 - # of text lines
-		_RamWrite(i++, 1);				//	0xFE42 - FF flag (1=can form feed)
-		_RamWrite(i++, 132);				// 0xFE43 - PRT 3: Width
-		_RamWrite(i++, 88);				//	0xFE44 - # of lines
-		_RamWrite(i++, 82);				//	0xFE45 - # of text lines
-		_RamWrite(i++, 1);				//	0xFE46 - FF flag (1=can form feed)
+		_RamWrite(i++, 0);				// 0xFE3B - spare
+		_RamWrite(i++, 0);				//	0xFE3C - spare
+		_RamWrite(i++, 0);				//	0xFE3D - spare
+		_RamWrite(i++, 0);				// 0xFE3E - spare
+		_RamWrite16(i, CCPaddr);		// 0xFE3F - CCP address
+		i += 2;
+		_RamWrite(i++, 16);				// 0xFE41 - CCP size in records
+		_RamWrite16(i, BDOSjmppage);	//	0xFE42 - BDOS address
+		i += 2;
+		_RamWrite(i++, 28);				//	0xFE44 - BDOS size in records
+		_RamWrite16(i, BIOSjmppage);	//	0xFE45 - BIOS address
+		i += 2;
 		//							  12345678123
 		char shellvar[]	 = "SH      VAR";
 		char genericfile[] = "           ";
@@ -528,72 +541,75 @@ void _Bios(void) {
 
 	switch (ch) {
 	case 0x00:
-		Status = CBOOT;	// 0 - BOOT - Ends RunCPM
+		Status = CBOOT;		// 0 - BOOT - Ends RunCPM
 		break;
 	case 0x03:
-		Status = WBOOT;	// 1 - WBOOT - Back to CCP
+		Status = WBOOT;		// 1 - WBOOT - Back to CCP
 		break;
-	case 0x06:				// 2 - CONST - Console status
+	case 0x06:					// 2 - CONST - Console status
 		SET_HIGH_REGISTER(AF, _chready());
 		break;
-	case 0x09:				// 3 - CONIN - Console input
+	case 0x09:					// 3 - CONIN - Console input
 		SET_HIGH_REGISTER(AF, _getch());
 #ifdef DEBUG
 		if (HIGH_REGISTER(AF) == 4)
 			Debug = 1;
 #endif
 		break;
-	case 0x0C:				// 4 - CONOUT - Console output
+	case 0x0C:					// 4 - CONOUT - Console output
 		_putcon(LOW_REGISTER(BC));
 		break;
-	case 0x0F:				// 5 - LIST - List output
+	case 0x0F:					// 5 - LIST - List output
 		_putlpt(LOW_REGISTER(BC));
 		break;
-	case 0x12:				// 6 - PUNCH/AUXOUT - Punch output
+	case 0x12:					// 6 - PUNCH/AUXOUT - Punch output
 		_putpun(LOW_REGISTER(BC));
 		break;
-	case 0x15:				// 7 - READER - Reader input
+	case 0x15:					// 7 - READER - Reader input
 		SET_HIGH_REGISTER(AF, _getrdr());
 		break;
-	case 0x18:				// 8 - HOME - Home disk head
+	case 0x18:					// 8 - HOME - Home disk head
 		break;
-	case 0x1B:				// 9 - SELDSK - Select disk drive
+	case 0x1B:					// 9 - SELDSK - Select disk drive
 		HL = 0x0000;
 		break;
-	case 0x1E:				// 10 - SETTRK - Set track number
+	case 0x1E:					// 10 - SETTRK - Set track number
 		Serial.print("BIOS - SETTRK - "); Serial.println(LOW_REGISTER(BC));
 		break;
-	case 0x21:				// 11 - SETSEC - Set sector number
+	case 0x21:					// 11 - SETSEC - Set sector number
 		Serial.print("BIOS - SETSEC - "); Serial.println(LOW_REGISTER(BC));
 		break;
-	case 0x24:				// 12 - SETDMA - Set DMA address
+	case 0x24:					// 12 - SETDMA - Set DMA address
 		HL = BC;
 		dmaAddr = BC;
 		break;
-	case 0x27:				// 13 - READ - Read selected sector
+	case 0x27:					// 13 - READ - Read selected sector
 		Serial.println("BIOS - READ");
 		SET_HIGH_REGISTER(AF, 0x00);
 		break;
-	case 0x2A:				// 14 - WRITE - Write selected sector
+	case 0x2A:					// 14 - WRITE - Write selected sector
 		SET_HIGH_REGISTER(AF, 0x00);
 		break;
-	case 0x2D:				// 15 - LISTST - Get list device status
-		SET_HIGH_REGISTER(AF, 0x0ff);
+	case 0x2D:					// 15 - LISTST - Get list device status
+		SET_HIGH_REGISTER(AF, _listst());
 		break;
-	case 0x30:				// 16 - SECTRAN - Sector translate
-		HL = BC;			// HL=BC=No translation (1:1)
+	case 0x30:					// 16 - SECTRAN - Sector translate
+		HL = BC;					// HL=BC=No translation (1:1)
 		break;
-	case 0x33:				// 17 - RETTOCCP - This allows programs ending in RET return to internal CCP
+	case 0x33:					// 17 - RETTOCCP - This allows programs ending in RET return to internal CCP
 		Status = RETCCP;
 		break;
-	case 0x36:           // 18 - MODEMINIT - serial port configuration
+	case 0x36:					// 18 - MODEMINIT - serial port configuration
 		_modeminit(BC);
 		break;
-	case 0x39:           // 19 - TTYIST - TTY input (RDR:) status
+	case 0x39:					// 19 - TTYIST - TTY input (RDR:) status
 		HL = _ttyist();
 		break;
-	case 0x3C:
-		HL = _ttyost();   // 20 - TTYOST - TTY output (PUN:) status
+	case 0x3C:						// 20 - TTYOST - TTY output (PUN:) status:
+		HL = _ttyost();
+		break;
+	case 0x3F:					// 21 - CONPEEK - console input peek
+		SET_HIGH_REGISTER(AF, _peekch());
 		break;
 	default:
 #ifdef DEBUG	// Show unimplemented BIOS calls only when debugging
@@ -611,6 +627,28 @@ void _Bios(void) {
 		_logBiosOut(ch);
 #endif
 
+}
+
+void testCtrlS(void) {
+	if (_chready()) {
+		if (_peekch() == 0x13) {		// ^S?
+			_getch();						// eat it
+			bool done = false;
+			while (!done) {
+				switch (_getch()) {
+					case 0x03:				// ^C?
+						Status = WBOOT;	// warm boot
+						done = true;
+						break;
+					case 0x11:				// ^Q?
+						done = true;
+						break;
+					default:
+						break;
+				}
+			}
+		}
+	}
 }
 
 void _Bdos(void) {
@@ -655,6 +693,9 @@ void _Bdos(void) {
 		Sends the char in E to the console
 		*/
 	case 2:
+		if( (novaDOSflags & CtrlSFlag) && !++ctrlScount ) {
+			testCtrlS();
+		}
 		_putcon(LOW_REGISTER(DE));
 		break;
 		/*
@@ -718,8 +759,15 @@ void _Bdos(void) {
 		Sends the $ terminated string pointed by (DE) to the screen
 		*/
 	case 9:
-		while ((chr = _RamRead(DE++)) != '$')
+		while ((chr = _RamRead(DE++)) != '$') {
+			if( (novaDOSflags & CtrlSFlag) && !++ctrlScount ) {
+				testCtrlS();
+				if (Status == WBOOT) {
+					break;
+				}
+			}
 			_putcon(chr);
+		}
 		break;
 		/*
 		C = 10 (0Ah) : Buffered input

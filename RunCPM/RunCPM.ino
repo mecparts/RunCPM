@@ -30,7 +30,7 @@
 	#define BOARD "Teensy 4.0"
 
 	#define MODEMPORT Serial3
-	#define MODEMSPD 19200
+	#define MODEMSPD 1200
 	#define MODEMRTS 18
 	#define MODEMCTS 19
 	#define MODEMDATABITS 8
