@@ -65,13 +65,13 @@ void _PatchCPM(void) {
 #endif
 	if (firstTime) {
 		// Patches in the BIOS jump destinations
-		for (i = 0; i < 0x42; i = i + 3) {
+		for (i = 0; i < 0x45; i = i + 3) {
 			_RamWrite(BIOSjmppage + i, JP);
 			_RamWrite16(BIOSjmppage + i + 1, BIOSpage + i);
 		}
 
 		// Patches in the BIOS page content
-		for (i = 0; i < 0x42; i = i + 3) {
+		for (i = 0; i < 0x45; i = i + 3) {
 			_RamWrite(BIOSpage + i, OUTa);
 			_RamWrite(BIOSpage + i + 1, i & 0xff);
 			_RamWrite(BIOSpage + i + 2, RET);
@@ -145,7 +145,7 @@ void _PatchCPM(void) {
 
 		i = Z3ENV;							// move environment and TCAP
 		_RamWrite(i++, JP);				// 0xFE00 - leading JP
-		_RamWrite16(i, 0); i+=2;
+		_RamWrite16(i, (BIOSjmppage + 6)); i+=2;
 
 		_RamWrite(i++, 'Z');				// 0xFE03 - environment ID
 		_RamWrite(i++, '3');
@@ -610,6 +610,9 @@ void _Bios(void) {
 		break;
 	case 0x3F:					// 21 - CONPEEK - console input peek
 		SET_HIGH_REGISTER(AF, _peekch());
+		break;
+	case 0x42:					// 22 - DELAY
+		_delay(BC);
 		break;
 	default:
 #ifdef DEBUG	// Show unimplemented BIOS calls only when debugging
