@@ -75,14 +75,14 @@ ZSFLAGS: DEFB	01001101B	; Flag byte set in zsdos.lib
 ; stamp for ZDDOS, thus allowing ZSCONFIG to enable and disable stamping
 ; of Last Access and Modify.
 
-GSTIME:	DEFW	0		; Address of get/set time/date routine (hfb)
-STLAV:	DEFW	0		; Address of stamp last access routine
-STCRV:	DEFW	0		; Address of stamp create routine
-STUPDV:	DEFW	0		; Address of stamp modify routine
-GETSTV:	DEFW	0		; Address of get stamp routine
-PUTSTV:	DEFW	0		; Address of set stamp routine
+GSTIME:	DEFW	CLOCK		; Address of get/set time/date routine (hfb)
+STLAV:	DEFW	CLOCK		; Address of stamp last access routine
+STCRV:	DEFW	CLOCK		; Address of stamp create routine
+STUPDV:	DEFW	CLOCK		; Address of stamp modify routine
+GETSTV:	DEFW	CLOCK		; Address of get stamp routine
+PUTSTV:	DEFW	CLOCK		; Address of set stamp routine
 	DEFW	0		; Dummy vector to disable with ZSCONFIG
-UNLOAD:	DEFW	0		; Pointer to remove Time Stamp routine
+UNLOAD:	DEFW	CLOCK		; Pointer to remove Time Stamp routine
 
 	PAGE
 ;********************************************************
@@ -500,6 +500,9 @@ rptdone:
 	jp	rdbget
 ;
 ; ---------------------------------------------------------
+clock:	ret
+;
+; ---------------------------------------------------------
 ; CIOS exit routine
 ;  If the error handler was invoked, the stack is in an undefined
 ;  condition at this point.  We therefore have to restore the user's
@@ -518,4 +521,4 @@ ciosExit:
 	ret			; And return to caller
 
 	end
-
+
