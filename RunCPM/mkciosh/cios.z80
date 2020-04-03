@@ -15,8 +15,8 @@
 ;
 ;	March 7 2020 Wayne Hortensius
 ;
-include	cios.lib
-	
+	include	cios.lib
+
 bios		equ	0f200h		; Change this to your BIOS jump page address
 
 wbootBIOS	equ	bios+00003h	; system warm boot
@@ -43,20 +43,140 @@ rubout	equ	07fh			; delete last char
 ;
 	ASEG
 ;
-	db	0,22,0,0,0,0		; CP/M 2.2 serial #
+	db	'ZSDOS '		; ZSDOS id
 ;
 ; Start BDOS
 ;
 start:	jp	entry			; Jump to entry point
 ;
-dtime:	db	0			; BDOSpage + 9
-flags:	db	0			; BDOSpage + 10
-delay:	db	0ffh
-pexit:	dw	0
-funct:	db	0
-spsave:	dw	0
-	dw	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-bdosStack:
+; CP/M 2.2 Compatable Error Vector Table
+;
+STBDSC:	DEFW	0		; Bad sector message
+STSEL:	DEFW	0		; Select error
+STRO:	DEFW	0		; Drive read only
+SFILRO:	DEFW	0		; File read only
+
+; External Path Name
+
+PATH:	DEFW	0		; Path address for file open, 0 if no path
+
+; Wheel Byte Pointer
+
+WHEEL:	DEFW	04BH		; Address of wheel byte, 0 if none
+
+; User configuration byte
+
+ZSFLAGS: DEFB	01001101B	; Flag byte set in zsdos.lib
+
+; Dispatch table for time/date stamp routines
+
+; ZSDOS uses all vectors in this table as indicated.  ZDDOS uses all but
+; STUPDV, GETSTV, and PUTSTV.  STCRV is used to store the address of the
+; stamp for ZDDOS, thus allowing ZSCONFIG to enable and disable stamping
+; of Last Access and Modify.
+
+GSTIME:	DEFW	0		; Address of get/set time/date routine (hfb)
+STLAV:	DEFW	0		; Address of stamp last access routine
+STCRV:	DEFW	0		; Address of stamp create routine
+STUPDV:	DEFW	0		; Address of stamp modify routine
+GETSTV:	DEFW	0		; Address of get stamp routine
+PUTSTV:	DEFW	0		; Address of set stamp routine
+	DEFW	0		; Dummy vector to disable with ZSCONFIG
+UNLOAD:	DEFW	0		; Pointer to remove Time Stamp routine
+
+	PAGE
+;********************************************************
+;*	 Z S D O S	L o w	 R A M	 D a t a	*
+;********************************************************
+
+; RAM has been moved down here to an area that is compatable with ZRDOS per
+; suggestion by Hal Bower.  The actual addresses used are NOT compatable with
+; ZRDOS.
+
+; Due to ZSDOS's smaller RAM area, any program that saves RAM in accordance
+; with ZRDOS's specifications for re-entry into BDOS should work under ZSDOS
+; without problems.  Some code will be saved also, as well as the Flag Byte,
+; but this should be no problem for IOP'S.
+
+; The Write Protect, Login, and Hard Disk Login Vectors are kept at the top of
+; ZSDOS, as they must reflect the current status of the Disk System and hence
+; should NOT be saved with other system variables Under ANY Circumstance!
+
+BGLORAM:
+;--------------------------------------------------------------------
+; The following locations MUST remain in EXACTLY this order
+
+TABCNT:	DEFB	0		; Tab counter
+TABCX1:	DEFB	0		; Temporary Tab counter (used by RDBUF)
+;--------------------------------------------------------------------
+
+FCONTP:	DEFB	0		; List enable flag (Control-P) - used by BGii
+LASTCH:	DEFB	0		; Last character - used by BGii
+
+;--------------------------------------------------------------------
+; The following locations MUST remain in EXACTLY this order
+
+USER:	DEFB	0		; User number - used by BGii
+DEFDRV:	DEFB	0		; Default drive number - used by BGii and DS
+DRIVE:	DEFB	0		; Drive number
+;--------------------------------------------------------------------
+
+FCB0:	DEFB	0		; FCB byte 0
+
+BGHIRAM:
+DMA:	DEFW	0080H		; DMA address
+
+TRANS:	DEFW	0		; Translation vector
+TEMP0:	DEFW	0		; Number of files on drive
+
+
+DIRBUF:	DEFW	0		; Directory buffer pointer - used by bgii
+IXP:	DEFW	0		; Disk parameter block
+CSV:	DEFW	0		; Check sum pointer
+ALV:	DEFW	0		; Allocation vector pointer
+
+;--------------------------------------------------------------------
+; The following locations MUST remain in EXACTLY this order
+; Copy of DPB for Current Drive
+
+MAXSEC:	DEFW	0		; Number of sectors/track
+NBLOCK:	DEFB	0		; Block shift
+NMASK:	DEFB	0		; Mask number of blocks
+NEXTND:	DEFB	0		; Extent mask
+MAXLEN:	DEFW	0		; Maximum block number-1
+NFILES:	DEFW	0		; Maximum number of files-1
+NDIR0:	DEFB	0		; First two entries ALV buffer
+	DEFB	0		; ..(NDIR1)
+NCHECK:	DEFW	0		; Number of checksum entries
+NFTRK:	DEFW	0		; First track number
+;--------------------------------------------------------------------
+FUNCT:	DEFB	0		; Function number
+PEXIT:	DEFW	0		; Exit code
+;--------------------------------------------------------------------
+; The following locations MUST remain in EXACTLY this order
+
+FLDRV:	DEFB	0		; Drive select used flag
+RDWR:	DEFB	0		; Read/write flag
+SEARQU:	DEFB	0		; Search question mark used
+SEARPU:	DEFB	0		; Search public file
+;--------------------------------------------------------------------
+RECDIR:	DEFW	0		; Record directory (checksum)
+FILCNT:	DEFW	0		; File counter
+SECPNT:	DEFB	0		; Sector pointer
+SUBFLG:	DEFB	0		; Submit flag (reset disk command)
+
+DCOPY:	DEFW	0		; Copy address FCB
+SEAREX:	DEFB	0		; Exit code search
+SEARNB:	DEFB	0		; Search number of bytes
+ERMODE:	DEFB	0		; BDOS error mode
+
+ARWORD:	DEFW	0		; De argument on entry - used for BGii
+DEVAL:	DEFW	0		; Return value for DE reg
+ZRFLGS:	DEFB	0		; ZRDOS/NovaDOS flags
+SPSAVE:	DEFW	0		; Stack pointer location
+	DEFS	54
+IXSAVE:	DEFW	0		; User's IX register
+ZSDOSS:				; ZSDOS stack
 ;
 ; Entry point BDOS commands
 ;
@@ -65,10 +185,11 @@ entry:	ld	a,c
 	ld	hl,0
 	ld	(pexit),hl		; Clear exit code
 	ld	(spsave),sp		; Save stack pointer
-	ld	sp,bdosStack		; Get internal stack pointer
-	push	ix			; Save index register
+	ld	sp,ZSDOSS		; Get internal stack pointer
+	push	ix			; Save index register in IXSAVE
 	push	de			; Save parameter register
 	pop	ix			; Get it back in ix
+	ld	(deval),ix		; and save it for when we exit
 	ld	hl,ciosExit		; Get CIOS exit address
 	push	hl			; Save it on stack to return from BDOS
 	ld	a,c			; Get function code
@@ -167,16 +288,27 @@ tstch:	cp	CR			; Test carriage return
 ; Entry : hl = buffer pointer
 ;         (IX+1) = character counter (always>0)
 ;
-delch:	dec	(ix+1)			; Decrement character counter
+delch:	ld	a,(hl)			; fetch character to be deleted
+	dec	(ix+1)			; Decrement character counter
 	dec	hl
 	push	ix
 	push	hl
+	ld	b,1			; 1 backspace for most chars
+	cp	TAB			; lousy handling for TABs, I'm afraid
+	jr	z,delch1
+	cp	' '
+	jr	nc,delch1
+	inc	b			; ctrl chars need 2 backspaces
+delch1:
+	push	bc
 	ld	c,BS			; BS, space, BS
 	call	conoutBIOS
 	ld	c,' '
 	call	conoutBIOS
 	ld	c,BS
 	call	conoutBIOS
+	pop	bc
+	djnz	delch1
 	pop	hl
 	pop	ix
 	ret
@@ -218,13 +350,17 @@ wrcon:	push	af			; Save character
 wrcon0:
 	call	coninBIOS		; wait for the next character
 	cp	ctrlC			; ^C?
-	jp	z,wbootBIOS		; yes, warm boot
+	jp	z,resetErmode		; yes, warm boot
 	cp	ctrlQ			; ^Q?
 	jr	nz,wrcon0		; loop until ^Q resumes or ^C reboots
 wrcon1:
 	pop	af			; Get character back
 	ld	c,a
 	jp	conoutBIOS		; Output it
+resetErmode:
+	xor	a			; on ^C, reset error mode to standard
+	ld	(ERMODE),a		; mode and warm boot
+	jp	wbootBIOS
 ;
 ;
 ;===================================================================
@@ -233,14 +369,18 @@ wrcon1:
 dcio:	inc	e			; Test if 0ffh
 	jr	z,dcin			; Yes do input
 	inc	e			; Test if 0feh
+	jr	z,dcstat		; Yes check input status
+	inc	e			; Test if 0fdh
 	jp	nz,conoutBIOS		; No, just output char (already in C)
-	call	constBIOS		; Get console status
+	call	coninBIOS		; Yes, wait for character
 	jr	exit			; And return it to caller
 dcin:	call	constBIOS		; Get character if available
 	or	a
 	jr	z,exit
 	call	coninBIOS
 	jr	exit			; And return it to caller
+dcstat:	call	constBIOS
+	jr	exit			; Return status to caller
 ;
 ;
 ;===================================================================
@@ -273,8 +413,6 @@ rdblp:	push	ix
 rdbget:	call	coninBIOS		; Get character
 	pop	hl
 	pop	ix
-	cp	ctrlC			; ^C warm boot
-	jr	z,rdbC
 	cp	ctrlE			; ^E new line
 	jr	z,rdbnl
 	cp	BS			; ^H backspace
@@ -291,10 +429,6 @@ rdbget:	call	coninBIOS		; Get character
 	jr	z,rdbeol
 	cp	LF			; LF end
 	jr	z,rdbeol
-	cp	' '			; [' '..'~'] ? add to buffer
-	jr	c,rdblp
-	cp	'~'+1
-	jr	nc,rdblp		; ignore anything else
 ;
 	inc	hl			; increment buffer pointer
 	ld	(hl),a			; store character
@@ -304,6 +438,9 @@ rdbget:	call	coninBIOS		; Get character
 	call	outch			; echo character
 	pop	hl			; restore registers
 	pop	ix
+	ld	a,(hl)
+	cp	CtrlC
+	jr	z,rdbC			; handle ^C
 	ld	a,(ix+1)		; get line count
 	cp	(ix+0)			; test line length=maximum line length
 	jr	nz,rdblp
@@ -311,12 +448,10 @@ rdbeol:	ld	a,cr			; echo a carriage return
 	jp	wrcon
 ;
 rdbC:	ld	a,(ix+1)
-	or	a			; is ^C the first char?
+	dec	a			; is ^C the first char?
 	jr	nz,rdblp		; no, ignore it
-	ld	a,CtrlC			; yes, echo it
-	call	outch
-	xor	a			; make sure no use stamp flag is
-	ld	(dtime),a		; around when we warm boot
+	xor	a			; reset error mode to CP/M standard
+	ld	(ERMODE),a		; when we warm boot due to ^C
 	jp	0
 ;
 rdbNl:	push	ix
@@ -356,7 +491,7 @@ rptloop:
 	push	hl
 	push	bc
 	ld	a,(hl)
-	call	wrcon			; write each character
+	call	outch			; write each character
 	pop	bc
 	pop	hl
 	inc	hl
@@ -366,20 +501,21 @@ rptdone:
 ;
 ; ---------------------------------------------------------
 ; CIOS exit routine
-;
+;  If the error handler was invoked, the stack is in an undefined
+;  condition at this point.  We therefore have to restore the user's
+;  IX register independent of stack position.  Thanks to Joe Wright's
+;  eagle eye for catching this one!
+
 ciosExit:
-	xor	a
-	ld	(dtime),a		; turn off DOS time
-	push	ix			; Save ix
-	pop	de			; Restore de
-	pop	ix			; Restore ix
-	ld	sp,(spsave)		; Get old sp
-	ld	hl,(pexit)		; Get exit code
-	ld	a,(funct)		; Get function code
-	ld	c,a			; Restore c
-	ld	a,l			; Copy function code
+	ld	sp,(spsave)	; Restore user stack
+	ld	ix,(ixsave)	; Restore IX (stack is don't care)
+	ld	de,(deval)	; Restore DE 
+	ld	hl,(pexit)	; Get exit code
+	ld	a,(funct)	; Get function code
+	ld	c,a		; Restore c
+	ld	a,l		; Copy function code
 	ld	b,h
-	ret				; And return to caller
+	ret			; And return to caller
 
 	end
-
+

@@ -22,7 +22,6 @@ void _PatchCPM(void) {
 	uint16 i;
 
 	//**********  Patch CP/M page zero into the memory  **********
-
 	/* BIOS entry point */
 	_RamWrite(0x0000, JP);		/* JP BIOS+3 (warm boot) */
 	_RamWrite16(0x0001, BIOSjmppage + 3);
@@ -38,32 +37,31 @@ void _PatchCPM(void) {
 	_RamWrite(0x0005, JP);
 	_RamWrite16(0x0006, BDOSjmppage + 0x06);
 
-	//**********  Patch CP/M Version into the memory so the CCP can see it
-#ifdef USE_CIOS
-	// patch in page relocated CIOS
-	for (uint16 i=0; i<sizeof cios; ++i) {
-		if (cios_prl[i>>3] & (1 << (i % 8))) {
-			_RamWrite(BDOSjmppage + i, (cios[i] + (BDOSjmppage >> 8)));
-		} else {
-			_RamWrite(BDOSjmppage + i, cios[i]);
-		}
-	}
-#else
- 	//**********  Patch CP/M Version into the memory so the CCP can see it
-	_RamWrite16(BDOSjmppage, 0x1600);
-	_RamWrite16(BDOSjmppage + 2, 0x0000);
-	_RamWrite16(BDOSjmppage + 4, 0x0000);
-
-	// Patches in the BDOS jump destination
-	_RamWrite(BDOSjmppage + 6, JP);
-	_RamWrite16(BDOSjmppage + 7, BDOSpage);
-
-	// Patches in the BDOS page content
-	_RamWrite(BDOSpage, INa);
-	_RamWrite(BDOSpage + 1, 0x00);
-	_RamWrite(BDOSpage + 2, RET);
-#endif
 	if (firstTime) {
+
+		//**********  Patch CP/M Version into the memory so the CCP can see it
+#ifdef USE_CIOS
+		// patch in page relocated CIOS
+		for (uint16 i=0; i<sizeof cios; ++i) {
+			if (cios_prl[i>>3] & (1 << (i % 8))) {
+				_RamWrite(BDOSjmppage + i, (cios[i] + (BDOSjmppage >> 8)));
+			} else {
+				_RamWrite(BDOSjmppage + i, cios[i]);
+			}
+		}
+		setNovaDosFlags(PublicFlag | PubROFlag);
+		setZsdosFlags(ZSDOSpublic);
+#else
+		// Patches in the BDOS jump destination
+		_RamWrite(BDOSjmppage + 6, JP);
+		_RamWrite16(BDOSjmppage + 7, BDOSpage);
+
+		// Patches in the BDOS page content
+		_RamWrite(BDOSpage, INa);
+		_RamWrite(BDOSpage + 1, 0x00);
+		_RamWrite(BDOSpage + 2, RET);
+#endif
+
 		// Patches in the BIOS jump destinations
 		for (i = 0; i < 0x45; i = i + 3) {
 			_RamWrite(BIOSjmppage + i, JP);
@@ -228,8 +226,8 @@ void _PatchCPM(void) {
 				++c;
 			}
 		}
-		_RamWrite(i++,0);				// 0xFE7E - Public drive area (ZRDOS +)
-		_RamWrite(i++,0);				// 0xFE7F - Public user area (ZRDOS +)
+		_RamWrite(i++,0);				// 0xFE7E - Public drive (ZRDOS +)
+		_RamWrite(i++,0x0F);		// 0xFE7F - Public user (ZRDOS +)
 		//						 1234567890123
 		char terminal[] = "DEC-VT100    ";
 		c = 0;
@@ -370,6 +368,13 @@ void _PatchCPM(void) {
 		_RamWrite(i++, 0);
 #endif
 		firstTime = FALSE;
+	} else {
+		_RamWrite(BDOSjmppage + 0, 'Z');
+		_RamWrite(BDOSjmppage + 1, 'S');
+		_RamWrite(BDOSjmppage + 2, 'D');
+		_RamWrite(BDOSjmppage + 3, 'O');
+		_RamWrite(BDOSjmppage + 4, 'S');
+		_RamWrite(BDOSjmppage + 5, ' ');
 	}
 }
 
@@ -696,7 +701,7 @@ void _Bdos(void) {
 		Sends the char in E to the console
 		*/
 	case 2:
-		if( (novaDOSflags & CtrlSFlag) && !++ctrlScount ) {
+		if( !++ctrlScount ) {
 			testCtrlS();
 		}
 		_putcon(LOW_REGISTER(DE));
@@ -763,7 +768,7 @@ void _Bdos(void) {
 		*/
 	case 9:
 		while ((chr = _RamRead(DE++)) != '$') {
-			if( (novaDOSflags & CtrlSFlag) && !++ctrlScount ) {
+			if( !++ctrlScount ) {
 				testCtrlS();
 				if (Status == WBOOT) {
 					break;
@@ -878,8 +883,9 @@ void _Bdos(void) {
 		oDrive = cDrive;
 		cDrive = LOW_REGISTER(DE);
 		HL = _SelectDisk(LOW_REGISTER(DE) + 1);	// +1 here is to allow SelectDisk to be used directly by disk.h as well
-		if (!HL)
+		if (!HL) {
 			oDrive = cDrive;
+		}
 		break;
 		/*
 		C = 15 (0Fh) : Open file
@@ -961,10 +967,11 @@ void _Bdos(void) {
 		HL = SCBaddr;
 		break;
 		/*
-		C = 28 (1Ch) : Write protect current disk
+		C = 28 (1Ch) : Write protect disks
 		*/
 	case 28:
-		roVector = roVector | (1 << cDrive);
+		roVector = DE;
+		HL = 0;
 		break;
 		/*
 		C = 29 (1Dh) : Get R/O vector
@@ -1019,7 +1026,8 @@ void _Bdos(void) {
 		HL = _SetRandom(DE);
 		break;
 		/*
-		C = 37 (25h) : Reset drive
+		C = 37 (25h) : Reset drives
+		IN: DE = drive map vector
 		*/
 	case 37:
 		break;
@@ -1039,41 +1047,65 @@ void _Bdos(void) {
 		HL = _WriteRand(DE);
 		break;
 		/*
-		C = 41 (29h) : Get/Set/Reset NovaDOS _
+		C = 41 (29h) : Get/Set/Reset NovaDOS flags
 		*/
 	case 41:		// NovaDOS
 		if (!LOW_REGISTER(DE)) {					// E=0 means return flags
-			HL = novaDOSflags;
+			HL = getNovaDosFlags();
 		} else if (LOW_REGISTER(DE) & 0x80) {	// set indicated flags
-			novaDOSflags |= (LOW_REGISTER(DE) & 0x7F);
+			uint8 flags = LOW_REGISTER(DE);
+			for (uint8 i = 0x01; i < 0x80 ; i <<= 1 ) {
+				if (flags & i) {
+					setNovaDosFlags(getNovaDosFlags() | i);
+				}
+			}
+			if (getNovaDosFlags() & PublicFlag) {
+				setZsdosFlags(getZsdosFlags() | ZSDOSpublic);
+			} else {
+				setZsdosFlags(getZsdosFlags() & ~ZSDOSpublic);
+			}
+			if (getNovaDosFlags() & PubROFlag) {
+				setZsdosFlags(getZsdosFlags() & ~ZSDOSpublicRW);
+			} else {
+				setZsdosFlags(getZsdosFlags() | ZSDOSpublicRW);
+			}
 		} else {											// reset indicated flags
-			novaDOSflags &= ~LOW_REGISTER(DE);
+			uint8 flags = LOW_REGISTER(DE);
+			for (uint8 i = 0x01; i < 0x80 ; i <<= 1 ) {
+				if (flags & i) {
+					setNovaDosFlags(getNovaDosFlags() & ~i);
+				}
+			}
+			if (getNovaDosFlags() & PublicFlag) {
+				setZsdosFlags(getZsdosFlags() | ZSDOSpublic);
+			} else {
+				setZsdosFlags(getZsdosFlags() & ~ZSDOSpublic);
+			}
+			if (getNovaDosFlags() & PubROFlag) {
+				setZsdosFlags(getZsdosFlags() & ~ZSDOSpublicRW);
+			} else {
+				setZsdosFlags(getZsdosFlags() | ZSDOSpublicRW);
+			}
 		}
+		break;
+		/*
+		C = 45 (2Dh):  Set ZSDOS error mode
+		*/
+	case 45:
+		setZsdosErrorMode(LOW_REGISTER(DE));
+		HL = 0;
 		break;
 		/*
 		C = 47 (2Fh):  Return Current DMA Address
 		*/
-	case 47:		// NovaDOS, ZRDOS
+	case 47:		// NovaDOS, ZRDOS, ZSDOS
 		HL = dmaAddr;
 		break;
 		/*
-		C = 48 (30h) : return 0x0019 to identiry BDOS as ZRDOS 1.9
-							(which is what NovaDOS H did)
+		C = 48 (30h) : identify as ZSDOS
 		*/
-	case 48:		// NovaDOS, ZRDOS
-		HL = 0x0019;
-		break;
-		/*
-		C = 50 (32h) :Set Warm Boot Trap
-		*/
-	case 50:		// NovaDOS, ZRDOS
-		warmBootTrap = DE;
-		break;
-		/*
-		C = 52 (33h) :Reset Warm Boot Trap
-		*/
-	case 52:		// NovaDOS, ZRDOS
-		warmBootTrap = 0;
+	case 48:		// ZSDOS
+		HL = 'S' << 8 | 0x11;
 		break;
 		/*
 		C = 54 : Get file timestamps
@@ -1090,15 +1122,64 @@ void _Bdos(void) {
 		DB  modification time, minutes, BCD
 		*/
 	case 54:		// NovaDOS, Z80DOS
-		HL = _getFileTimeStamp();
+		HL = _getZrDosFileTimeStamp();
 		break;
 		/*
-		C = 55 : Use creation date and last modified date and time stored
-					by Get Stamp instead of real time for the next Write,
-					Make File or Close File call.
+		C = 98: ZSDOS get system date/time
+		IN: DE = address to return system date/time
 		*/
-	case 55:		// NovaDOS, Z80DOS
-		useFileStamp = true;
+	case 98:
+		HL = _getZsDosTime(DE);
+		break;
+		/*
+		C = 99: ZSDOS get system date/time
+		IN: DE = address of newsystem date/time
+		*/
+	case 99:
+		HL = _setZsDosTime(DE);
+		break;
+		/*
+		C = 100: get ZSDOS flags
+		OUT HL=flags
+		*/
+	case 100:
+		HL = getZsdosFlags();
+		break;
+		/*
+		C = 101: set ZSDOS flags
+		IN DE=flags
+		*/
+	case 101:
+		setZsdosFlags(LOW_REGISTER(DE));
+		if( getZsdosFlags() & ZSDOSpublic ) {
+			setNovaDosFlags( getNovaDosFlags() | PublicFlag );
+		} else {
+			setNovaDosFlags( getNovaDosFlags() & ~PublicFlag );
+		}
+		if( getZsdosFlags() & ZSDOSpublicRW ) {
+			setNovaDosFlags( getNovaDosFlags() & ~PubROFlag );
+		} else {
+			setNovaDosFlags( getNovaDosFlags() | PubROFlag );
+		}
+		break;
+		/*
+		C = 102:  get file stamp
+		IN DE=FCB
+		OUT: A=time/date code
+		     DMA=file stamp
+		*/
+	case 102:
+		HL = _getZsDosFileTimeStamp(DE);
+		break;
+		/*
+		C = 103:  set file stamp
+		IN: DE=FCB
+		    DMA=file stamp
+		OUT:
+		   A=time/date code
+		*/
+	case 103:
+		HL = _setZsDosFileTimeStamp(DE);
 		break;
 		/*
 		C = 105, 200 (69h, C8h) : GetTime
@@ -1106,7 +1187,7 @@ void _Bdos(void) {
 		*/
 	case 105:	// Z80DOS
 	case 200:	// NovaDOS
-		_getTime(DE);
+		_getZrDosTime(DE);
 		HL = 0;
 		break;		
 		/*
@@ -1115,7 +1196,7 @@ void _Bdos(void) {
 		*/
 	case 104:	// Z80DOS
 	case 201:	// NovaDOS
-		_setTime(DE);
+		_setZrDosTime(DE);
 		HL = 0;
 		break;
 		
@@ -1139,13 +1220,17 @@ void _Bdos(void) {
 		/*
 		C = 141 : Delay
 		IN: DE = # of milliseconds to pause. Originally was # of
-               system clock ticks but ms are of more use to me.
+					system clock ticks but ms are of more use to me.
 		*/
 		_delay(DE);
 		break;
-   case 165:
-      HL = _millis();
-      break;
+	/*
+	C = 165 : get millis
+	OUT: HL = address of 4 byte millis counter
+	*/
+	case 165:
+	HL = _millis();
+	break;
 #if defined ARDUINO || defined CORE_TEENSY || defined ESP32
 		/*
 		C = 220 (DCh) : PinMode
@@ -1186,9 +1271,9 @@ void _Bdos(void) {
 		*/
 	case 230:
 		if (LOW_REGISTER(DE) == 0xFF) {
-			novaDOSflags |= HiOutFlag;		// allow 8 bit output
+			setNovaDosFlags(getNovaDosFlags() | HiOutFlag);		// allow 8 bit output
 		} else {
-			novaDOSflags &= ~HiOutFlag;	// allow 7 b
+			setNovaDosFlags(getNovaDosFlags() & ~HiOutFlag);		// allow 8 bit output
 		}
 		break;
 		/*
@@ -1266,13 +1351,9 @@ void _Bdos(void) {
 	}
 	bdosFunc = 0;
 	
-	if (!errorTrapped) {
-		// CP/M BDOS does this before returning
-		SET_HIGH_REGISTER(BC, HIGH_REGISTER(HL));
-		SET_HIGH_REGISTER(AF, LOW_REGISTER(HL));
-	} else {
-		errorTrapped = FALSE;
-	}
+	// CP/M BDOS does this before returning
+	SET_HIGH_REGISTER(BC, HIGH_REGISTER(HL));
+	SET_HIGH_REGISTER(AF, LOW_REGISTER(HL));
 
 #ifdef DEBUGLOG
 #ifdef LOGONLY

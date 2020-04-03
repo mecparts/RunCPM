@@ -106,6 +106,5 @@ BEGIN
   Seek(PatchCios, FileSize(PatchCios) - 1);
   BlockWrite(PatchCios, ZeroBlock, 1);
   Close(PatchCios);
-  WriteLN('Done. Move ',CiosHname,' to the same directory as RunCPM.ino.');
 END.
-
+

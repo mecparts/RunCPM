@@ -168,13 +168,13 @@ void setup(void) {
 	_putch(Z3REV / 10 + '0');
 	_putch('.');
 	_putch(Z3REV % 10 + '0');
-	_puts("/NovaDOS Z80 Operating System\r\n");
+	_puts("/ZSDOS 1.1\r\n");
 	_puts("RunCPM BIOS Version ");
 	_puts(VERSION);
 	_puts("\r\n");
 	_puts("RunCPM by Marcelo Dantas\r\n");
 	_puts("Arduino read/write support by Krzysztof Klis\r\n\n");
-	_puts("(NovaDOS Clock Interrupt Enabled)\r\n");
+	_puts("(ZSDOS Clock Loaded)\r\n");
 	_puts("(CCP: " CCPname " @ 0x");
 	_puthex16(CCPaddr);
 	_puts(")\r\n");
@@ -192,15 +192,12 @@ void setup(void) {
 #else
 	if (SD.begin(SDINIT)) {
 #endif
-		SdFile::dateTimeCallback(_fatDateTime);
-
 #if defined GSX
 		_gsx_init();
 #endif
 
 		if (VersionCCP >= 0x10 || SD.exists(CCPname)) {
 			while (true) {
-				//_puts(CCPHEAD);
 				_PatchCPM();
 				Status = RUNNING;
 #ifndef CCP_INTERNAL

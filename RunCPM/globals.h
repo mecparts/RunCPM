@@ -129,7 +129,7 @@ typedef unsigned int		uint32;
 #define ExtSZ (BlkSZ * BlkEX)
 #define BlkS2 4096	// Number of blocks on a S2 (module)
 #define MaxEX 31	// Maximum value the EX field can take
-#define MaxS2 15	// Maximum value the S2 (modules) field can take - Can be set to 63 to emulate CP/M Plus
+#define MaxS2 63	// Maximum value the S2 (modules) field can take - Can be set to 63 to emulate CP/M Plus
 #define MaxCR 128	// Maximum value the CR field can take
 #define MaxRC 128	// Maximum value the RC field can take
 
@@ -268,9 +268,10 @@ static uint8 RAM[MEMSIZE];
 #define BDOSjmppage	(BIOSjmppage - BDOSsize)
 #define BDOSpage		(BDOSjmppage + 1024)
 
-#define SCBaddr	(BDOSpage + 16)	// Address of the System Control Block
-#define tmpFCB 	(BDOSpage + 64)	// Address of the temporary FCB
-#define fileTS		(BDOSpage + 128)	// address of the timestamp of the last open/found file
+#define novaDosFlagsByte (BDOSpage + 0)
+#define SCBaddr	(novaDosFlagsByte + 1)	// Address of the System Control Block
+#define tmpFCB 	(SCBaddr + 48)	// Address of the temporary FCB
+#define fileTS		(tmpFCB + 64)	// address of the timestamp of the last open/found file
 #define millisTS	(fileTS + 10)		// address of last millis() value
 
 /* Definition of global variables */
@@ -284,7 +285,6 @@ static uint8	cDrive = 0;			// Currently selected drive
 static uint8	userCode = 0;		// Current user code
 static uint16	roVector = 0;
 static uint16	loginVector = 0;
-static uint8	useFileStamp = FALSE;
 static int16	bdosFunc = -1;
 static uint8	allUsers = FALSE;	// true when dr is '?' in BDOS search first
 static uint8	allExtents = FALSE; // true when ex is '?' in BDOS search first
@@ -297,20 +297,44 @@ static uint16	numAllocBlocks;		// # of allocation blocks on disk
 static uint8	extentsPerDirEntry;	// # of logical (16K) extents in a directory entry
 #define logicalExtentBytes (16*1024UL)
 static uint16	physicalExtentBytes;	// # bytes described by 1 directory entry
-static uint16	warmBootTrap = 0;	// warm boot error trap jump address
-static uint8	errorTrapped = FALSE;	// true after warm boot error has been trapped
+
 enum NovaDOSflags {
 	PublicFlag = 1<<0,
-	CtrlSFlag = 1<<1,
+	//CtrlSFlag = 1<<1,
 	HiInFlag = 1<<2,
 	HiOutFlag = 1<<3,
-	PubROFlag = 1<<4,
-	RbldVecFlag = 1<<5
+	PubROFlag = 1<<4
+	//RbldVecFlag = 1<<5
 };
-static uint8	novaDOSflags = PublicFlag | RbldVecFlag | CtrlSFlag;
+#define setNovaDosFlags(x) _RamWrite(novaDosFlagsByte,x)
+#define getNovaDosFlags() _RamRead(novaDosFlagsByte)
+
+#define zsdosErrorModeByte (BDOSjmppage+0x005c)
+enum ZSDOSerrorBits {
+	SuppressErrMsgFlag = 1<<0,
+	ReturnErrCodeFlag = 1<<1,
+	ZsdosDefaultFlag = 1<<7
+};
+#define setZsdosErrorMode(x) _RamWrite(zsdosErrorModeByte,x)
+#define getZsdosErrorMode() _RamRead(zsdosErrorModeByte)
+
+#define zsdosFlagsByte (BDOSjmppage+0x0015)
+enum ZSDOSflags {
+	ZSDOSpublic = 1<<0,
+	ZSDOSpublicRW = 1<<1,
+	ZSDOSsetROvct = 1<<2,
+	ZSDOSquickLogin = 1<<3,
+	ZSDOSdiskChg = 1<<4,
+	ZSDOSzcprPath = 1<<5,
+	ZSDOSpathWpub = 1<<6
+};
+#define setZsdosFlags(x) _RamWrite(zsdosFlagsByte,x)
+#define getZsdosFlags() _RamRead(zsdosFlagsByte)
+
 static uint8   ctrlScount = 0;
 	
-#define tohex(x)	((x) < 10 ? (x) + 48 : (x) + 87)
+#define tohex(x)	((x) < 10 ? (x) + '0' : (x) + 'A' - 10)
+#define fromhex(x) ((x) <= '9' ? (x) - '0' : (x) - 'A' + 10)
 
 /* Definition of externs to prevent precedence compilation errors */
 #ifdef __cplusplus

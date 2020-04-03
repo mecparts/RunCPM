@@ -15,7 +15,7 @@ uint8 _getchNB(void)		// Gets a character, non-blocking, no echo
 
 void _putcon(uint8 ch)		// Puts a character
 {
-	_putch((novaDOSflags & HiOutFlag) ? ch : ch & 0x7F);
+	_putch((getNovaDosFlags() & HiOutFlag) ? ch : ch & 0x7F);
 }
 
 void _putcon8(uint8 ch)		// Puts an 8 bit character

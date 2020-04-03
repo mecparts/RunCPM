@@ -89,9 +89,9 @@ int _sys_select(uint8* disk) {
 	return(result);
 }
 
-int _sys_setfileattributes(uint8* filename, uint16 fcbaddr) {
+uint16 _sys_setfileattributes(uint8* filename, uint16 fcbaddr) {
 	CPM_FCB *F = (CPM_FCB*)_RamSysAddr(fcbaddr);
-	uint8 result = false;
+	uint16 result = 0xFF;
 	File f;
 
 	digitalWrite(LED, HIGH ^ LEDinv);
@@ -101,11 +101,101 @@ int _sys_setfileattributes(uint8* filename, uint16 fcbaddr) {
 		f.makeSystem(F->tp[1] & 0x80);
 		f.makeArchive(F->tp[2] & 0x80);
 		f.close();
-		result = TRUE;
+		result = 0x00;
 	}
 	digitalWrite(LED, LOW ^ LEDinv);
-	return(result);
+	return result;
 
+}
+
+uint8 bin2bcd(uint8 bin) {
+	return (bin / 10) * 16 + (bin % 10);
+}
+
+uint8 bcd2bin(uint8 bcd) {
+	return (bcd / 16) * 10 + (bcd % 16);
+}
+
+uint16 _sys_getfiletimestamp(uint8* filename) {
+	uint16 result = 0xFF;
+	File f;
+	
+	digitalWrite(LED, HIGH ^ LEDinv);
+	f = SD.open((char*)filename, O_READ);
+	if (f) {
+		f.dirEntry(&fileDirEntry);
+		f.close();
+
+		_RamWrite(dmaAddr +  0, bin2bcd(FAT_YEAR(fileDirEntry.creationDate) % 100));
+		_RamWrite(dmaAddr +  1, bin2bcd(FAT_MONTH(fileDirEntry.creationDate)));
+		_RamWrite(dmaAddr +  2, bin2bcd(FAT_DAY(fileDirEntry.creationDate)));
+		_RamWrite(dmaAddr +  3, bin2bcd(FAT_HOUR(fileDirEntry.creationTime)));
+		_RamWrite(dmaAddr +  4, bin2bcd(FAT_MINUTE(fileDirEntry.creationTime)));
+
+		_RamWrite(dmaAddr +  5, bin2bcd(FAT_YEAR(fileDirEntry.lastAccessDate) % 100));
+		_RamWrite(dmaAddr +  6, bin2bcd(FAT_MONTH(fileDirEntry.lastAccessDate)));
+		_RamWrite(dmaAddr +  7, bin2bcd(FAT_DAY(fileDirEntry.lastAccessDate)));
+		_RamWrite(dmaAddr +  8, 0);	// no last access time, only date
+		_RamWrite(dmaAddr +  9, 0);
+
+		_RamWrite(dmaAddr + 10, bin2bcd(FAT_YEAR(fileDirEntry.lastWriteDate) % 100));
+		_RamWrite(dmaAddr + 11, bin2bcd(FAT_MONTH(fileDirEntry.lastWriteDate)));
+		_RamWrite(dmaAddr + 12, bin2bcd(FAT_DAY(fileDirEntry.lastWriteDate)));
+		_RamWrite(dmaAddr + 13, bin2bcd(FAT_HOUR(fileDirEntry.lastWriteTime)));
+		_RamWrite(dmaAddr + 14, bin2bcd(FAT_MINUTE(fileDirEntry.lastWriteTime)));
+
+		result = 1;
+	}
+	digitalWrite(LED, LOW ^ LEDinv);
+	return result;
+}
+
+uint16 _sys_setfiletimetamp(uint8* filename) {
+	uint16 result = 0xFF;
+	File f;
+
+	digitalWrite(LED, HIGH ^ LEDinv);
+	if ((f = SD.open((char*)filename, O_RDONLY))) {
+		uint16 year;
+		uint8 month, day, hour, minute;
+		year = bcd2bin(_RamRead(dmaAddr + 0));
+		if (year>77) {
+			year += 1900;
+		} else {
+			year += 2000;
+		}
+		month = bcd2bin(_RamRead(dmaAddr + 1));
+		day = bcd2bin(_RamRead(dmaAddr + 2));
+		hour = bcd2bin(_RamRead(dmaAddr + 3));
+		minute = bcd2bin(_RamRead(dmaAddr + 4));
+		f.timestamp(T_CREATE, year, month, day, hour, minute, 0);
+
+		year = bcd2bin(_RamRead(dmaAddr + 5));
+		if (year>77) {
+			year += 1900;
+		} else {
+			year += 2000;
+		}
+		month = bcd2bin(_RamRead(dmaAddr + 6));
+		day = bcd2bin(_RamRead(dmaAddr + 7));
+		f.timestamp(T_ACCESS, year, month, day, 0, 0, 0);
+
+		year = bcd2bin(_RamRead(dmaAddr + 10));
+		if (year>77) {
+			year += 1900;
+		} else {
+			year += 2000;
+		}
+		month = bcd2bin(_RamRead(dmaAddr + 11));
+		day = bcd2bin(_RamRead(dmaAddr + 12));
+		hour = bcd2bin(_RamRead(dmaAddr + 13));
+		minute = bcd2bin(_RamRead(dmaAddr + 14));
+		f.timestamp(T_WRITE, year, month, day, hour, minute, 0);
+		f.close();
+		result = 0x01;
+	}
+	digitalWrite(LED, LOW ^ LEDinv);
+	return result;
 }
 
 long _sys_filesize(uint8* filename) {
@@ -130,7 +220,7 @@ int _sys_openfile(uint8* filename, CPM_FCB* F) {
 	if (f) {
 		f.dirEntry(&fileDirEntry);
 		f.close();
-		F->s1 = 0x00;
+		F->s1 = fromhex(filename[2]) | 0x80;
 		result = 1;
 	}
 	digitalWrite(LED, LOW ^ LEDinv);
@@ -144,13 +234,14 @@ int _sys_openpublicfile(uint8* filename, CPM_FCB* F) {
 	
 	digitalWrite(LED, HIGH ^ LEDinv);
 	for( uint8 i = 0; i < 16; ++i) {
-		filename[2] = (i < 10) ? (i + '0') : (i + 'A' - 10);
+		filename[2] = tohex(i);
 		f = SD.open((char*)filename, O_READ);
 		if (f) {
 			f.dirEntry(&fileDirEntry);
 			f.close();
 			if (fileDirEntry.attributes & DIR_ATT_HIDDEN) {
-				F->s1 = filename[2];
+				F->s1 = fromhex(filename[2]) | 0x80;
+				F->fn[6] |= 0x80;	// indicates public file opened to caller
 				result = 1;
 				break;
 			}
@@ -161,6 +252,29 @@ int _sys_openpublicfile(uint8* filename, CPM_FCB* F) {
 	return(result);
 }
 
+int _sys_closefile(uint8* filename, CPM_FCB* F) {
+	File f;
+	int result = 0;
+
+	if (!(F->s2 & 0x80)) {	// file is modified
+		f = SD.open((char*)filename, O_READ);
+		if (f) {
+			time_t rightNow = Teensy3Clock.get();
+			uint16 yr = year(rightNow);
+			uint8 mon = month(rightNow);
+			uint8 dy = day(rightNow);
+			uint8 hr = hour(rightNow);
+			uint8 min = minute(rightNow);
+			f.timestamp(T_WRITE, yr, mon, dy, hr, min, 0);
+			f.close();
+			result = 1;
+		}
+	} else {
+		result = 1;	// close is a formality for unmodified files
+	}
+	digitalWrite(LED, LOW ^ LEDinv);
+	return result;
+}
 int _sys_makefile(uint8* filename) {
 	File f;
 	int result = 0;
@@ -168,6 +282,13 @@ int _sys_makefile(uint8* filename) {
 	digitalWrite(LED, HIGH ^ LEDinv);
 	f = SD.open((char*)filename, O_CREAT | O_WRITE);
 	if (f) {
+		time_t rightNow = Teensy3Clock.get();
+		uint16 yr = year(rightNow);
+		uint8 mon = month(rightNow);
+		uint8 dy = day(rightNow);
+		uint8 hr = hour(rightNow);
+		uint8 min = minute(rightNow);
+		f.timestamp(T_CREATE, yr, mon, dy, hr, min, 0);
 		f.close();
 		result = 1;
 	}
@@ -191,6 +312,7 @@ int _sys_renamefile(uint8* filename, uint8* newname) {
 	f = SD.open((char*)filename, O_WRITE | O_APPEND);
 	if (f) {
 		if (f.rename(SD.vwd(), (char*)newname)) {
+			f.makeHidden(false);			// renaming a public file makes it private
 			f.close();
 			result = 1;
 		}
@@ -496,7 +618,7 @@ uint8 _Truncate(char* filename, uint8 rc) {
 
 void _MakeUserDir() {
 	uint8 dFolder = cDrive + 'A';
-	uint8 uFolder = toupper(tohex(userCode));
+	uint8 uFolder = tohex(userCode);
 
 	uint8 path[4] = { dFolder, FOLDERCHAR, uFolder, 0 };
 
@@ -535,9 +657,9 @@ void _putch(uint8 ch) {
 	} else 
 #endif
 	if (ch == '\x0e') { // SO - 8 bit output
-		novaDOSflags |= HiOutFlag;
+		setNovaDosFlags(getNovaDosFlags() | HiOutFlag);
 	} else if (ch == '\x0f') { // SI - 7 bit output
-		novaDOSflags &= ~HiOutFlag;
+		setNovaDosFlags(getNovaDosFlags() & ~HiOutFlag);
 	}
 }
 
@@ -564,7 +686,7 @@ int _kbhit(void) {
 	char c;
 	uint32_t timeout = 0;
 
-	if (novaDOSflags & HiInFlag) {
+	if (getNovaDosFlags() & HiInFlag) {
 		// turn off cursor key escape processing
 		// when inputting 8 bit characters
 		// (needed for file transfers through the
@@ -798,7 +920,7 @@ uint8 _getch(void) {
 	c = keyFifo[fifoHead];
 	fifoHead = (fifoHead + 1) % FIFO_LNG;
 	--fifoCount;
-	return(c & ((novaDOSflags & HiInFlag) ? 0xFF : 0x7F));
+	return(c & ((getNovaDosFlags() & HiInFlag) ? 0xFF : 0x7F));
 }
 
 // non destructive peek at next available character
@@ -1062,7 +1184,7 @@ uint16 _millis() {
 // FAT file system day 0 is Jan 1, 1980 00:00:00
 // Z80DOS day 0 is Dec 31, 1977 (or, day 1 is Jan 1,1978)
 //
-// The upshot is when we retreive a TimeLib time, we have to subtract
+// The upshot is when we retrieve a TimeLib time, we have to subtract
 // the number of seconds between Jan 1, 1970 and Dec 31, 1977 - a peroid
 // of 2921 days - before we can use it in a Z80DOS time block.
 //
@@ -1071,48 +1193,7 @@ uint16 _millis() {
 // 
 #define DAYS_OFFSET_CPM_TO_UNIX 2921
 
-#define bin2bcd(i) ((i / 10) * 16 + (i % 10))
-#define bcd2bin(i) ((i / 16) * 10 + (i % 16))
-
-void _fatDateTime(uint16_t* date, uint16_t* time) {
-	time_t tmStamp;
-	
-	if (useFileStamp) {
-		uint16 fileTimePtr;
-		switch (bdosFunc) {
-			case 22:							// make new file
-				fileTimePtr = fileTS;	// use file's create timestamp
-				break;
-			case 16:							//	close file
-			case 21:							// write sequential
-			case 34:							// random write
-			case 40:							// random write zero fill
-				fileTimePtr = fileTS+4;	// use files' modify timestamp
-				break;
-			default:
-				return;						// do nothing for other BDOS calls
-		}
-		useFileStamp = false;
-		tmStamp = (_RamRead16(fileTimePtr) + DAYS_OFFSET_CPM_TO_UNIX) * SECS_PER_DAY;
-		uint8 i;
-		i = _RamRead(fileTimePtr + 2);
-		tmStamp += 3600UL * bcd2bin(i);
-		i = _RamRead(fileTimePtr + 3);
-		tmStamp += 60UL * bcd2bin(i);
-	} else {
-		// User gets date and time from real-time
-		// clock in callback function
-		tmStamp = Teensy3Clock.get();
-	}
-		
-	// return date using FAT_DATE macro to format fields
-	*date = FAT_DATE(year(tmStamp), month(tmStamp), day(tmStamp));
-
-	// return time using FAT_TIME macro to format fields
-	*time = FAT_TIME(hour(tmStamp), minute(tmStamp), second(tmStamp));
-}
-
-uint16 _getFileTimeStamp() {
+uint16 _getZrDosFileTimeStamp() {
 	tmElements_t te;
 	time_t tt;
 	
@@ -1142,15 +1223,62 @@ uint16 _getFileTimeStamp() {
 	
 	days = tt / SECS_PER_DAY - DAYS_OFFSET_CPM_TO_UNIX;
 	_RamWrite16(fileTS+4, days);
-	i = 0x19;//bin2bcd(hour(tt));
+	i = bin2bcd(hour(tt));
 	_RamWrite(fileTS+6, i);
-	i = 0x16;//bin2bcd(minute(tt));
+	i = bin2bcd(minute(tt));
 	_RamWrite(fileTS+7, i);
 
 	return fileTS;
 }
 
-void _getTime(uint16 timeBlk) {
+// ZSDOS compatible get time routine
+uint8 _getZsDosTime(uint16 timeBlk) {
+	time_t rightNow = Teensy3Clock.get();
+	uint8 i;
+	i = bin2bcd(year(rightNow) % 100);
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(month(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(day(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(hour(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(minute(rightNow));
+	_RamWrite(timeBlk++, i);
+	i = bin2bcd(second(rightNow));
+	_RamWrite(timeBlk++, i);
+	return 1;
+}
+
+// ZSDOS compatible set time routine
+uint8 _setZsDosTime(uint16 timeBlk) {
+	uint8 yr = _RamRead(timeBlk++);
+	uint8 mon = _RamRead(timeBlk++);
+	uint8 day = _RamRead(timeBlk++);
+	uint8 hr = _RamRead(timeBlk++);
+	uint8 mn = _RamRead(timeBlk++);
+	uint8 sec = _RamRead(timeBlk);
+	tmElements_t tm;
+
+	yr = bcd2bin(yr);
+	// Unix year is # years past 1970
+	if (yr < 78) {
+		yr += 30;			// 0..77 is 2000..2077
+	} else {
+		yr -= 70;			// 78..99 is 1978..1999
+	}
+	tm.Year = yr;
+	tm.Month = bcd2bin(mon);
+	tm.Day = bcd2bin(day);
+	tm.Hour = bcd2bin(hr);
+	tm.Minute = bcd2bin(mn);
+	tm.Second = bcd2bin(sec);
+	Teensy3Clock.set(makeTime(tm)); // set the RTC
+	return 1;
+}
+
+// ZRDOS compatible get time routine
+void _getZrDosTime(uint16 timeBlk) {
 	time_t rightNow = Teensy3Clock.get();
 	uint16 days = rightNow / SECS_PER_DAY - DAYS_OFFSET_CPM_TO_UNIX;
 	_RamWrite16(timeBlk, days);
@@ -1164,7 +1292,7 @@ void _getTime(uint16 timeBlk) {
 	_RamWrite(timeBlk++, i);
 }
 
-void _setTime(uint16 timeBlk) {
+void _setZrDosTime(uint16 timeBlk) {
 	time_t newTime = (_RamRead16(timeBlk) + DAYS_OFFSET_CPM_TO_UNIX) * SECS_PER_DAY;
 	uint8 i;
 	i = _RamRead(timeBlk + 2);
