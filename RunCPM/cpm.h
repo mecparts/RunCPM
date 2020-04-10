@@ -882,7 +882,7 @@ void _Bdos(void) {
 	case 14:
 		oDrive = cDrive;
 		cDrive = LOW_REGISTER(DE);
-		HL = _SelectDisk(LOW_REGISTER(DE) + 1);	// +1 here is to allow SelectDisk to be used directly by disk.h as well
+		HL = _SelectDisk(LOW_REGISTER(DE) + 1, 0);	// +1 here is to allow SelectDisk to be used directly by disk.h as well
 		if (!HL) {
 			oDrive = cDrive;
 		}
@@ -1200,7 +1200,7 @@ void _Bdos(void) {
 		HL = 0;
 		break;
 		
-#ifdef GSX
+#ifdef USE_GSX
 		/*
 		C = 115 (73h) : GSX
 		IN: DE = parameter block address

@@ -55,7 +55,9 @@
    
 	#define BEEPER 20
 
-	//#define GSX
+	#define USE_GSX
+	#define PiGFX
+	//#define TFT
 	//#define ST7735
 	//#define ILI9341
 
@@ -103,7 +105,7 @@
 #include "cpu.h"
 #include "disk.h"
 #include "host.h"
-#ifdef GSX
+#ifdef USE_GSX
 #include "gsx.h"
 #endif
 #include "cpm.h"
@@ -192,8 +194,8 @@ void setup(void) {
 #else
 	if (SD.begin(SDINIT)) {
 #endif
-#if defined GSX
-		_gsx_init();
+#if defined USE_GSX
+		gsx.begin();
 #endif
 
 		if (VersionCCP >= 0x10 || SD.exists(CCPname)) {
